@@ -1,0 +1,17 @@
+numpy
+scipy
+BitVector
+scikit-image
+PILLOW
+alive_progress
+pesq
+pystoi
+sympy
+PyWavelets
+webrtcvad
+setuptools
+soundfile
+pandas
+tabulate
+colorama
+logging

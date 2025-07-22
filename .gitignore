@@ -1,0 +1,40 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.env
+.env
+venv/
+ENV/
+
+# VSCode
+.vscode/
+
+# Results and temp
+Results/
+Archive/
+*.log
+*.tmp
+*.bak
+*.swp
+
+# Audio files
+carriers_storage/*.wav
+CarriersToTests/*.wav
+
+# Jupyter Notebooks
+*.ipynb_checkpoints
+
+# Optymization and old files
+Optymization/*
+Old/*
+
+# System files
+.DS_Store
+Thumbs.db
+
+# Tests
+Tests/*
+
+tempCodeRunnerFile.py
