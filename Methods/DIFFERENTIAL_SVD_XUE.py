@@ -67,9 +67,6 @@ class DIFFERENTIAL_SVD_XUE(DIFFERENTIAL_SVD_XUE_BASED_METHOD):
         self.alphas.append(self.alpha)
         self.betas.append(self.beta)
 
-        self.alphas.append(self.alpha)
-        self.betas.append(self.beta)
-
         self.logger.debug(f"Max even singular value: {ro_11}, Max odd singular value: {ro_21}, T_bu_1: {T_bu_1}, T_bu_2: {T_bu_2}")
 
         ro_dash_11 = 0

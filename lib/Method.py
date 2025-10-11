@@ -29,6 +29,8 @@ class Method:
 
         self.method_directories = None
 
+        self.extraction_mask = None
+
     def set_carrier(self, carrier):
         """
         Sets the carrier for the method.
@@ -76,9 +78,10 @@ class Method:
     
 class MultiLevelSVDProcessor:
 
-    def __init__(self, method_arguments):
+    def __init__(self, method_arguments, logger=None):
 
         self.how_much_rows_in_hankel = method_arguments['HANKEL_ROWS']
+        self.logger = logger
 
     def hankel_2row(self, vector):
         vector = np.asarray(vector)
@@ -117,29 +120,81 @@ class MultiLevelSVDProcessor:
         current = signal
 
         for _ in range(num_levels):
+            
+            self.logger.debug(f"Current signal: \n{current}")
             H = self.hankel_k_row(current, self.how_much_rows_in_hankel)
+
+            self.logger.debug(f"Hankel matrix: \n{H}")
+
             U, s, Vh = svd(H, full_matrices=False)
+
+            self.logger.debug(f"SVD U: \n{U}, s: \n{s}, Vh: \n{Vh}")
+            
             levels.append((U, s, Vh))
+            
             Ha = s[0] * np.outer(U[:, 0], Vh[0, :])
+
+            self.logger.debug(f"Ha: \n{Ha}")
+            
             current = self.diagonal_average(Ha)
+
+            self.logger.debug(f"Current signal after diagonal average: \n{current}")
+
+        self.logger.debug(f"Final levels: \n{levels}")
 
         return levels
 
     def reconstruct_from_levels(self, levels):
+
+        self.logger.debug(f"Reconstructing from levels: {levels}")
+
         U, s, Vh = levels[-1]
+
+        self.logger.debug(f"Last level U: {U}, s: {s}, Vh: {Vh}")
+
         Ha = s[0] * np.outer(U[:, 0], Vh[0, :])
+
+        self.logger.debug(f"Ha: {Ha}")
+
         Hd = s[1] * np.outer(U[:, 1], Vh[1, :])
+
+        self.logger.debug(f"Hd: {Hd}")
+
         currentL = self.diagonal_average(Ha + Hd)
 
+        self.logger.debug(f"Current level after diagonal average: {currentL}")
+
+        i = 0
+
         for U, s, Vh in reversed(levels[:-1]):
+
+            self.logger.debug(f"Reconstructing level U: {U}, s: {s}, Vh: {Vh}")
+
             Hd = s[1] * np.outer(U[:, 1], Vh[1, :])
+
+            self.logger.debug(f"Hd: {Hd}")
+
             currentR = self.diagonal_average(Hd)
+
+            self.logger.debug(f"Current R: {currentR}")
+
             Hd_reconstructed = self.hankel_k_row(currentR, self.how_much_rows_in_hankel)
+
+            self.logger.debug(f"Hd_reconstructed: {Hd_reconstructed}")
+
             Ha_reconstructed = self.hankel_k_row(currentL, self.how_much_rows_in_hankel)
+
+            self.logger.debug(f"Ha_reconstructed: {Ha_reconstructed}")
+
             H = Ha_reconstructed + Hd_reconstructed
+
+            self.logger.debug(f"Reconstructed Hankel matrix: {H}")
+
             currentL = self.diagonal_average(H)
 
-        
+            self.logger.debug(f"Current level after reconstruction: {currentL}")
+
+        self.logger.debug(f"Final reconstructed signal: {currentL}")
 
         return currentL
     
@@ -464,7 +519,6 @@ class FrameProcessor:
             if vad.is_speech(frame, sample_rate):
                 speech_frames.append(frame)
         return speech_frames
-
 class DIFFERENTIAL_SVD_XUE_BASED_METHOD(Method):
 
     def __init__(self, method_arguments, logger=None):
@@ -495,6 +549,11 @@ class DIFFERENTIAL_SVD_XUE_BASED_METHOD(Method):
         self.unvoiced_frames = []
         self.voiced_indices = []
         self.unvoiced_indices = []
+
+        self.frames_to_use = []
+        self.frames_voice_status = []
+
+        self.adaptive = method_arguments['ADAPTIVE']
 
         self.alphas = []
         self.betas = []
@@ -598,8 +657,6 @@ class DIFFERENTIAL_SVD_XUE_BASED_METHOD(Method):
 
         raise ValueError("Nie znaleziono preambuły (nawet z tolerancją 1 błędu).")
 
-
-
     def set_carrier(self, carrier):
 
         self.logger.info(f"Setting carrier for method {self.name}, carrier name: {carrier.name}, carrier fs: {carrier.fs}, carrier length: {len(carrier.data_signed_int16)} samples")
@@ -610,19 +667,19 @@ class DIFFERENTIAL_SVD_XUE_BASED_METHOD(Method):
 
         self.frames_to_use = []
 
-        if self.where_to_hide == 'VOICED':
-            self.frames_to_use = self.voiced_frames
-        elif self.where_to_hide == 'UNVOICED':
-            self.frames_to_use = self.unvoiced_frames
-        else:
-            total_frames = len(self.voiced_indices) + len(self.unvoiced_indices)
-            self.frames_to_use = [None] * total_frames
-            for frame, idx in zip(self.voiced_frames, self.voiced_indices):
-                self.frames_to_use[idx] = frame
-            for frame, idx in zip(self.unvoiced_frames, self.unvoiced_indices):
-                self.frames_to_use[idx] = frame
-
-        self.capacity = self.calculate_capacity(self.frames_to_use)
+        total_frames = len(self.voiced_indices) + len(self.unvoiced_indices)
+        self.frames_to_use = [None] * total_frames
+        self.frames_voice_status = [None] * total_frames
+        for frame, idx in zip(self.voiced_frames, self.voiced_indices):
+            self.frames_to_use[idx] = frame
+            self.frames_voice_status[idx] = True
+        for frame, idx in zip(self.unvoiced_frames, self.unvoiced_indices):
+            self.frames_to_use[idx] = frame
+            self.frames_voice_status[idx] = False
+        
+        self.logger.info(f"Carrier set for method {self.name}, total frames: {total_frames}, voiced frames: {len(self.voiced_frames)}, unvoiced frames: {len(self.unvoiced_frames)}")
+        
+        self.capacity = self.calculate_capacity(self.voiced_frames)
     
     def embedd_in_frame(self):
         raise NotImplementedError("embedd_in_frame method must be implemented by subclasses!")
@@ -764,46 +821,27 @@ class DIFFERENTIAL_SVD_XUE_BASED_METHOD(Method):
         
         frames, indices, remaining = self.FrameProcessor.divide_into_frames(data, self.frame_length, fs, self.hop_duration_ms)
 
-        # voiced_frames, unvoiced_frames, voiced_indices, unvoiced_indices, remaining_samples = self.FrameProcessor.divide_into_voiced_unvoiced_frames(self.type_of_vad, data, fs, self.frame_length, self.hop_duration_ms)
-
         secret = []
 
-        if(self.where_to_hide == 'VOICED'):
-            stegobject_frames = frames[self.voiced_indices]
-        elif(self.where_to_hide == 'UNVOICED'):
-            stegobject_frames = frames[self.unvoiced_indices]
-        else:
-            total_frames = len(self.voiced_indices) + len(self.unvoiced_indices)
-            stegobject_frames = [None] * total_frames
-            for frame, idx in zip(stegobject_frames, self.voiced_indices):
-                stegobject_frames[idx] = frame
-            for frame, idx in zip(stegobject_frames, self.unvoiced_indices):
-                stegobject_frames[idx] = frame
+        for frame, bit_mask in zip(frames, self.frames_voice_status):
+        
+            if(bit_mask == True):
+                self.logger.debug(f"Extracting bit from frame \n{frame}")
 
-        for frame in stegobject_frames:
+                extracted_bit = self.extract_from_frame(frame, fs)
+                secret.append(extracted_bit)
 
-            self.logger.debug(f"Extracting bit from frame \n{frame}")
-
-            extracted_bit = self.extract_from_frame(frame, fs)
-            secret.append(extracted_bit)
-
-            if(len(secret) == len(self.secret.binary_data)):
-                self.logger.debug("Found enough bits for extraction.")
-                break
+                if(len(secret) == len(self.secret.binary_data)):
+                    self.logger.debug("Found enough bits for extraction.")
+                    break
 
         secret = BitVector(bitlist=secret)
-
-        # try:
-        #     secret = self.find_sync_and_extract(secret)
-        # except ValueError as e:
-        #     self.logger.error("Extraction failed: " + str(e))
-        #     return None
         
         extraction_stop = timer()
 
         self.extraction_time = extraction_stop - extration_start
 
-        self.logger.info("########### Finished extraction process ###########")
+        self.logger.info("########### Finished extraction process ##########")
         
         return secret
     
@@ -811,31 +849,41 @@ class DIFFERENTIAL_SVD_XUE_BASED_METHOD(Method):
 
         self.logger.info("########### Starting embedding process ###########")
 
-
         embedded_frames = []
         
         start_embedding = timer()
 
         i = 0
+        index = 0
 
-        for frame in self.frames_to_use:
+        for frame, is_voiced in zip(self.frames_to_use, self.frames_voice_status):
 
-            if i < len(self.secret.binary_data):
+            if(is_voiced):
 
-                secret_bit = self.secret.binary_data[i]
+                if i < len(self.secret.binary_data):
 
-                self.logger.debug(f"Embedding bit {secret_bit} in frame \n{frame}")
+                    secret_bit = self.secret.binary_data[i]
+                    
+                    self.logger.debug(f"Embedding bit {secret_bit} in frame idx: {index} \n{frame}")
 
-                embedded_frame = self.embedd_in_frame(frame, secret_bit, self.carrier.fs)
+                    embedded_frame = self.embedd_in_frame(frame, secret_bit, self.carrier.fs)
 
-                self.logger.debug(f"Embedded frame: \n{embedded_frame}")
-                embedded_frames.append(embedded_frame)
+                    embedded_frames.append(embedded_frame)
+
+                    self.logger.debug(f"Embedded frame: \n{embedded_frame}")
+
+                    i += 1
+
+                else:
+                    self.logger.debug(f"No more bits to embed, using original frame at index {index}")
+                    embedded_frames.append(frame)
 
             else:
-                self.logger.debug(f"No more bits to embed, using original frame \n{frame}")
+
+                self.logger.debug(f"Using unvoiced frame at index {index} without embedding")
                 embedded_frames.append(frame)
 
-            i += 1
+            index += 1
 
         stop_embedding = timer()
 
@@ -853,18 +901,7 @@ class DIFFERENTIAL_SVD_XUE_BASED_METHOD(Method):
         total_frames = len(self.voiced_indices) + len(self.unvoiced_indices)
         reconstructed = [None] * total_frames
 
-        if self.where_to_hide == 'VOICED':
-            for frame, idx in zip(embedded_frames, self.voiced_indices):
-                reconstructed[idx] = frame
-            for frame, idx in zip(self.unvoiced_frames, self.unvoiced_indices):
-                reconstructed[idx] = frame
-        elif self.where_to_hide == 'UNVOICED':
-            for frame, idx in zip(embedded_frames, self.unvoiced_indices):
-                reconstructed[idx] = frame
-            for frame, idx in zip(self.voiced_frames, self.voiced_indices):
-                reconstructed[idx] = frame
-        else:
-            reconstructed = embedded_frames
+        reconstructed = embedded_frames
 
         # --- Wyznacz frame_len i hop_size ---
         frame_len = len(reconstructed[0])
@@ -903,7 +940,7 @@ class MULTI_LEVEL_METHOD(DIFFERENTIAL_SVD_XUE_BASED_METHOD):
 
         self.HANKEL_ROWS = method_arguments['HANKEL_ROWS']
 
-        self.MultiLevelSVDProcessor = MultiLevelSVDProcessor(method_arguments)
+        self.MultiLevelSVDProcessor = MultiLevelSVDProcessor(method_arguments, logger)
 
         self.random_levels = []
 

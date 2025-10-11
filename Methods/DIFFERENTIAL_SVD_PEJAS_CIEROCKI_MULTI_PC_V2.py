@@ -10,7 +10,7 @@ class DIFFERENTIAL_SVD_PEJAS_CIEROCKI_MULTI_PC_V2(MULTI_LEVEL_METHOD):
 
         super().__init__(method_arguments, logger)
 
-        self.name = f"DIFFERENTIAL_SVD_PEJAS_CIEROCKI_MULTI_PC_V2_L_{self.levels}_A_{self.alpha}_B_{self.beta}_{self.where_to_hide}_FREQ_L_{self.FREQ_L}_FREQ_H_{self.FREQ_H}_FL_{self.frame_length}"
+        self.name = f"DIFFERENTIAL_SVD_PEJAS_CIEROCKI_MULTI_PC_V2_L_{self.levels}_A_{self.alpha}_B_{self.beta}_{self.where_to_hide}_FREQ_L_{self.FREQ_L}_FREQ_H_{self.FREQ_H}_FL_{self.frame_length}_ADAPTIVE_{self.adaptive}"
 
         self.domain = 'FREQUENCY'
         self.style = 'SEQUENTIAL'

@@ -56,14 +56,15 @@ class DIFFERENTIAL_SVD_PEJAS_CIEROCKI_MULTI_V2(MULTI_LEVEL_METHOD):
                 self.s_even.append(ro_11)
                 self.s_odd.append(ro_21)
 
-                T_bu_1 = self.alpha + 2.0*(ro_21 - ro_11)/(ro_21 + ro_11)
-                T_bu_2 = self.beta + 2.0*(ro_11 - ro_21)/(ro_21 + ro_11)
+                if(self.adaptive):
+                    T_bu_1 = self.alpha + 2.0*(ro_21 - ro_11)/(ro_21 + ro_11)
+                    T_bu_2 = self.beta + 2.0*(ro_11 - ro_21)/(ro_21 + ro_11)
+                else:
+                    T_bu_1 = self.alpha
+                    T_bu_2 = self.beta
 
                 self.alphas.append(T_bu_1)
                 self.betas.append(T_bu_2)
-
-                self.alphas.append(self.alpha)
-                self.betas.append(self.beta)
 
                 ro_dash_11 = 0
                 ro_dash_21 = 0

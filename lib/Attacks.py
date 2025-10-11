@@ -259,7 +259,7 @@ class Attacks:
         Wykonuje ataki na pliki audio w oparciu o zdefiniowane metody i ataki.
         """
         if test_to_perform['NOISE']:
-            self.add_gaussian_noise_with_target_snr(method_stegobjects_directory, test_name + '.wav', target_snr_db=50)
+            self.add_gaussian_noise_with_target_snr(method_stegobjects_directory, test_name + '.wav', target_snr_db=30)
 
         if test_to_perform['HIGHPASS']:
             self.high_pass_filter(method_stegobjects_directory, test_name + '.wav', cutoff=500)

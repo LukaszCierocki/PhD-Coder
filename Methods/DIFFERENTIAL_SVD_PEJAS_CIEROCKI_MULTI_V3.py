@@ -19,9 +19,9 @@ class DIFFERENTIAL_SVD_PEJAS_CIEROCKI_MULTI_V3(MULTI_LEVEL_METHOD):
 
     def calculate_capacity(self, carrier):
         self.logger.info("Calculating capacity for DIFFERENTIAL_SVD_PEJAS_CIEROCKI_MULTI_V3")
-        self.logger.debug(f"Calculated capacity: {len(carrier) - 22}")
+        self.logger.debug(f"Calculated capacity: {len(carrier)}")
 
-        return len(carrier) - 22
+        return len(carrier)
 
 
     def embedd_in_frame(self, frame, bit, fs):

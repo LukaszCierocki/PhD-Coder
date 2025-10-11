@@ -12,17 +12,32 @@ import os
 
 import random
 import string
-import math
 import shutil
 
-from scipy.fftpack import dct, idct, fft, ifft
 from datetime import datetime
+from lib.Logger import Logger
+
+import logging
 
 
 class Tools:
 
-    def __init__(self):
+    def __init__(self, log_level=logging.DEBUG):
         self.current_working_directory = os.getcwd()
+
+        self.create_results_directory()
+        self.archive_previous_tests(results_root='Results', archive_folder='Archive')
+        self.current_test_directory, self.test_id = self.create_current_test_directory()
+        self.logger = Logger(log_dir = self.current_test_directory, log_name='test_log_' + datetime.now().strftime("%Y-%m-%d_%H-%M-%S") + '.log', log_level=log_level).get_logger()
+
+    def get_logger(self):
+        return self.logger
+    
+    def get_current_test_directory(self):
+        return self.current_test_directory
+    
+    def get_test_id(self):
+        return self.test_id
 
     def generate_random_id(self, length=4):
         return ''.join(random.choices(string.ascii_uppercase + string.digits, k=length))
@@ -88,122 +103,84 @@ class Tools:
         return original_array
     
     def load_audio_file(self, filepath):
-        """
-        Load an audio file and return a structured audio object.
+        try:
+            if not os.path.isfile(filepath):
+                raise FileNotFoundError(f"Plik {filepath} nie istnieje.")
+            fs, data = wavfile.read(filepath)
+            data_signed_int16 = data.astype(np.int16)
+            data_unsigned_int16 = np.asarray(data.astype(np.int32) + 2**15, dtype=np.uint16)
+            audio_object = {
+                'content_signed_int16':      data_signed_int16,
+                'content_unsigned_int16':    data_unsigned_int16,
+                'fs':                        fs,
+                'filepath':                  filepath,
+                'filename':                  os.path.basename(filepath)
+            }
+            return audio_object
+        except Exception as e:
+            self.logger.exception(f"Error loading audio file {filepath}")
+            raise
 
-        Parameters:
-        filepath (str): Path to the audio file.
-
-        Returns:
-        dict: Audio object with the following keys:
-            'content_signed_int16' (np.ndarray): Audio data in signed 16-bit format.
-            'content_unsigned_int16' (np.ndarray): Audio data converted to unsigned 16-bit format.
-            'fs' (int): Sampling frequency.
-            'filepath' (str): Full path to the audio file.
-            'filename' (str): Name of the audio file.
-        """
-        
-        if not os.path.isfile(filepath):
-            raise FileNotFoundError(f"Plik {filepath} nie istnieje.")
-
-        # Odczytaj plik WAV
-        fs, data = wavfile.read(filepath)
-
-        # Signed int16 (oryginalne dane)
-        data_signed_int16 = data.astype(np.int16)
-
-        # Przekształcenie do unsigned int16 (np. do manipulacji bitowej)
-        data_unsigned_int16 = np.asarray(data.astype(np.int32) + 2**15, dtype=np.uint16)
-
-        # Utwórz obiekt z danymi
-        audio_object = {
-            'content_signed_int16':      data_signed_int16,
-            'content_unsigned_int16':    data_unsigned_int16,
-            'fs':                        fs,
-            'filepath':                  filepath,
-            'filename':                  os.path.basename(filepath)
-        }
-
-        return audio_object
-    
-    def find_files_with_string_in_name(self, directory, search_string, recursive=True):
-        matching_files = []
-        filenames = []
-
-        # Przechodzimy przez wszystkie pliki w katalogu (i opcjonalnie podkatalogach)
-        for root, _, files in os.walk(directory):
-            for file in files:
-                if search_string in file:
-                    file_path = os.path.join(root, file)
-                    matching_files.append(file_path)
-                    file_name_without_extension, _ = os.path.splitext(file)
-                    filenames.append(file_name_without_extension)
-                    
-            # Jeśli nie chcemy przeszukiwać podkatalogów, przerywamy po pierwszym
-            if not recursive:
-                break
-
-        return matching_files, filenames
-    
     def save_audio_file(self, path, audio_object):
-        """
-        Zapisz dane audio z obiektu stegoobject do pliku WAV.
-
-        Obsługuje zarówno dane typu int16, jak i uint16.
-
-        Parameters:
-        - path (str): Ścieżka docelowa do zapisu.
-        - stegoobject (dict): Obiekt zawierający dane audio i metadane.
-        """
-        
-        filename = audio_object['name']
-        data = audio_object['content']
-        fs = audio_object['fs']
-
-        # Upewnij się, że dane są typu int16 (przekształć jeśli trzeba)
-        if data.dtype == np.uint16:
-            # Przesunięcie zakresu z [0, 65535] -> [-32768, 32767]
-            data = data.astype(np.int32) - 32768
-        elif data.dtype == np.int16:
+        try:
+            filename = audio_object['name']
+            data = audio_object['content']
+            fs = audio_object['fs']
+            if data.dtype == np.uint16:
+                data = data.astype(np.int32) - 32768
+            elif data.dtype == np.int16:
+                data = data.astype(np.int16)
+            else:
+                raise TypeError(f"Nieobsługiwany typ danych: {data.dtype}. Oczekiwano int16 lub uint16.")
+            data = np.clip(data, -32768, 32767)
             data = data.astype(np.int16)
-        else:
-            raise TypeError(f"Nieobsługiwany typ danych: {data.dtype}. Oczekiwano int16 lub uint16.")
-
-        data = np.clip(data, -32768, 32767)  # bezpieczeństwo zakresu
-        data = data.astype(np.int16)
-
-        # Zapis do pliku WAV
-        wavfile.write(os.path.join(path, filename), fs, data)
+            wavfile.write(os.path.join(path, filename), fs, data)
+        except Exception as e:
+            self.logger.exception(f"Error saving audio file {audio_object.get('name', 'unknown')}")
+            raise
 
     def list_files_in_carrier_directory(self):
-        current_directory = os.getcwd()
-        current_directory += '/Carriers/' # Get the current working directory
-        files = [{'path' : current_directory + '/' + f, 'filename': os.path.splitext(f)[0]} for f in os.listdir(current_directory) if os.path.isfile(os.path.join(current_directory, f))]
-        return files
+        try:
+            current_directory = os.getcwd()
+            current_directory += '/Carriers/'
+            files = [{'path' : current_directory + '/' + f, 'filename': os.path.splitext(f)[0]} for f in os.listdir(current_directory) if os.path.isfile(os.path.join(current_directory, f))]
+            return files
+        except Exception as e:
+            self.logger.exception("Error listing files in Carriers/")
+            return []
 
     def list_files_in_secrets_directory(self):
-        current_directory = os.getcwd()
-        current_directory += '/image_secrets/'  # Get the current working directory
-        files = [{'path': current_directory + f, 'filename': os.path.splitext(f)[0]} for f in os.listdir(current_directory) if os.path.isfile(os.path.join(current_directory, f))]
-        return files
+        try:
+            current_directory = os.getcwd()
+            current_directory += '/image_secrets/'
+            files = [{'path': current_directory + f, 'filename': os.path.splitext(f)[0]} for f in os.listdir(current_directory) if os.path.isfile(os.path.join(current_directory, f))]
+            return files
+        except Exception as e:
+            self.logger.exception("Error listing files in image_secrets/")
+            return []
 
     def load_carriers(self,files=None):
-        
-        files = self.list_files_in_carrier_directory()
-
-        carriers = []
-        for file in files:
-            carriers.append(Carrier({'name': file['filename'], 'path' : file['path']}))
-        return carriers
+        try:
+            files = self.list_files_in_carrier_directory()
+            carriers = []
+            for file in files:
+                carriers.append(Carrier({'name': file['filename'], 'path' : file['path']}))
+            return carriers
+        except Exception as e:
+            self.logger.exception("Error loading carriers")
+            return []
 
     def load_carrier(self, filename):
+        try:
+            files = self.list_files_in_carrier_directory()
+            for file in files:
+                if file['filename'] == filename:
+                    return Carrier({'name': file['filename'], 'path' : file['path']})
+            raise FileNotFoundError(f"Carrier file {filename} not found in Carriers/ directory.")
+        except Exception as e:
+            self.logger.exception(f"Error loading carrier {filename}")
+            return None
 
-        files = self.list_files_in_carrier_directory()
-
-        for file in files:
-            if file['filename'] == filename:
-                return Carrier({'name': file['filename'], 'path' : file['path']})
-        
     def generate_bitvector_from_seed(self, seed, num_bits):
         random.seed(seed)  # Ustawienie ziarna
         bits = []
@@ -239,47 +216,73 @@ class Tools:
         return secrets
     
     def prepare_method_directory(self, base_dir: str, method_name: str) -> dict:
-        """
-        Tworzy podkatalogi dla danej metody w katalogu testu.
+        try:
+            method_dir = os.path.join(base_dir, method_name)
+            subdirs = {
+                'Stegobjects': os.path.join(method_dir, 'Stegobjects'),
+                'Extracted': os.path.join(method_dir, 'Extracted'),
+                'Charts': os.path.join(method_dir, 'Charts'),
+                'Secrets': os.path.join(method_dir, 'Secrets'),
+                'Carriers_Charts': os.path.join(base_dir, 'Carriers', 'Charts'),
+                'Base': method_dir
+            }
+            for path in subdirs.values():
+                os.makedirs(path, exist_ok=True)
+            return subdirs
+        except Exception as e:
+            self.logger.exception(f"Error preparing method directory for {method_name}")
+            raise
 
-        Args:
-            base_dir (str): katalog główny testu (np. 'Results/2025-06-21_12-00-00')
-            method_name (str): unikalna nazwa metody
-
-        Returns:
-            dict: słownik ze ścieżkami do podkatalogów tej metody
-        """
-        method_dir = os.path.join(base_dir, method_name)
-
-        subdirs = {
-            'Stegobjects': os.path.join(method_dir, 'Stegobjects'),
-            'Extracted': os.path.join(method_dir, 'Extracted'),
-            'Charts': os.path.join(method_dir, 'Charts'),
-            'Secrets': os.path.join(method_dir, 'Secrets'),
-            'Carriers_Charts': os.path.join(base_dir, 'Carriers', 'Charts'),
-            'Grouped_Charts': os.path.join(base_dir, 'Grouped Charts'),
-            'Base': method_dir
-        }
-
-        for path in subdirs.values():
-            os.makedirs(path, exist_ok=True)
-
-        return subdirs
-    
     def archive_previous_tests(self, results_root='Results', archive_folder='Archive'):
-        results_path = os.path.abspath(results_root)
-        archive_path = os.path.join(results_path, archive_folder)
+        try:
+            results_path = os.path.abspath(results_root)
+            archive_path = os.path.join(results_path, archive_folder)
+            os.makedirs(archive_path, exist_ok=True)
+            for name in os.listdir(results_path):
+                path = os.path.join(results_path, name)
+                if os.path.isdir(path) and name != archive_folder:
+                    dest_path = os.path.join(archive_path, name)
+                    if not os.path.exists(dest_path):
+                        shutil.move(path, dest_path)
+        except Exception as e:
+            self.logger.exception("Error archiving previous tests")
+            raise
 
-        os.makedirs(archive_path, exist_ok=True)
+    def save_extracted_secret(self, extracted_data, method_directories, filename):
 
-        for name in os.listdir(results_path):
-            path = os.path.join(results_path, name)
-            if os.path.isdir(path) and name != archive_folder:
-                dest_path = os.path.join(archive_path, name)
-                if not os.path.exists(dest_path):
-                    shutil.move(path, dest_path)
+        """ Save extracted secret data to a file.
+        """ 
+        if not extracted_data:
+            self.logger.warning("No extracted data to save.")
+            return
+        
+        how_much = len(extracted_data) // 8
+        ext_sec = extracted_data[0:how_much * 8]
+        with open(os.path.join(method_directories['Extracted'], filename + '.txt'), 'w') as file:
+            file.write(ext_sec.get_bitvector_in_ascii())
 
     def create_results_directory(self):
-        os.makedirs('Results', exist_ok=True)
-        if not os.path.exists('Results'):
-            os.makedirs('Results')
+        try:
+            os.makedirs('Results', exist_ok=True)
+            if not os.path.exists('Results'):
+                os.makedirs('Results')
+        except Exception as e:
+            self.logger.exception("Error creating Results directory")
+            raise
+
+    def find_files_with_string_in_name(self, directory, search_string, recursive=True):
+        matching_files = []
+        filenames = []
+
+        for root, _, files in os.walk(directory):
+            for file in files:
+                if search_string in file:
+                    file_path = os.path.join(root, file)
+                    matching_files.append(file_path)
+                    file_name_without_extension, _ = os.path.splitext(file)
+                    filenames.append(file_name_without_extension)
+                    
+            if not recursive:
+                break
+
+        return matching_files, filenames

@@ -105,7 +105,7 @@ class Analysis:
         plt.plot(time, data)
         plt.xlabel('Time (s)')
         plt.ylabel('Amplitude')
-        plt.title('Przebieg czasowy pliku audio')
+        plt.title('Waveform of ' + filename)
 
         filename = filename.replace('.wav', '')
         plt.savefig(os.path.join(current_test_charts_directory, filename + '_waveform.png'))
@@ -497,6 +497,7 @@ class Analysis:
             'LEVELS' : method.levels,
             'FRAMES' : method.where_to_hide,
             'VAD' : method.type_of_vad,
+            'ADAPTIVE' : method.adaptive,
             'ALPHA' : method.alpha,
             'BETA' : method.beta,
             'CARRIER' : carrier.name,
@@ -598,7 +599,7 @@ class Analysis:
     def save_methods_analysis_to_csv(self, filepath):
 
         fieldnames = [
-            'NAME', 'TEST NAME', 'LEVELS', 'VAD', 'ALPHA', 'BETA', 'FRAMES', 'CARRIER', 'TEST', 'LEVELS', 'SECRET' , 'SEC. SIZE [b]' , 'MSE', 'PESQ', 'STOI', 'PSNR [dB]','BER [%]' ,'CAP. [%]', 'CAP. [bps]', 'EMB TIME [s]', 'EXT TIME [s]', 'DOMAIN' ,'STYLE'
+            'NAME', 'TEST NAME', 'LEVELS', 'VAD', 'ADAPTIVE', 'ALPHA', 'BETA', 'FRAMES', 'CARRIER', 'TEST', 'LEVELS', 'SECRET' , 'SEC. SIZE [b]' , 'MSE', 'PESQ', 'STOI', 'PSNR [dB]','BER [%]' ,'CAP. [%]', 'CAP. [bps]', 'EMB TIME [s]', 'EXT TIME [s]', 'DOMAIN' ,'STYLE'
         ]
 
         current_time = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -756,7 +757,7 @@ class Analysis:
             
     def print_results(self):
 
-        columns_list = ['NAME', 'CARRIER', 'LEVELS', 'VAD', 'ALPHA', 'BETA' ,'FRAMES', 'TEST', 'SECRET', 'SEC. SIZE [b]', 'MSE', 'PSNR [dB]', 'PESQ', 'STOI','BER [%]', 'CAP. [%]', 'CAP. [bps]','EMB TIME [s]', 'EXT TIME [s]']
+        columns_list = ['NAME', 'CARRIER', 'LEVELS', 'VAD', 'ADAPTIVE', 'ALPHA', 'BETA' ,'FRAMES', 'TEST', 'SECRET', 'SEC. SIZE [b]', 'MSE', 'PSNR [dB]', 'PESQ', 'STOI','BER [%]', 'CAP. [%]', 'CAP. [bps]','EMB TIME [s]', 'EXT TIME [s]']
                 
         self.printTable(self.methods_analysis, columns_list)
 
@@ -940,3 +941,40 @@ class Analysis:
             formatted_rows.append(formatted_row)
 
         print(tabulate(formatted_rows, headers=grouped.columns, tablefmt='grid', showindex=False))
+
+    def save_grouped_to_csv(self, group_by_fields, output_path, filters=None):
+        if not self.methods_analysis:
+            return
+
+        df = pd.DataFrame(self.methods_analysis)
+
+        # Filtrowanie po warunkach
+        if filters:
+            for key, condition in filters.items():
+                if key not in df.columns:
+                    return
+                if callable(condition):
+                    df = df[df[key].apply(condition)]
+                else:
+                    df = df[df[key] == condition]
+
+        if df.empty:
+            return
+
+        for field in group_by_fields:
+            if field not in df.columns:
+                return
+
+        numeric_cols = ['MSE', 'PSNR [dB]', 'PESQ', 'STOI', 'BER [%]',
+                        'CAP. [%]', 'CAP. [bps]', 'EMB TIME [s]', 'EXT TIME [s]']
+
+        for col in numeric_cols:
+            if col in df.columns:
+                df[col] = pd.to_numeric(df[col], errors='coerce')
+
+        grouped = df.groupby(group_by_fields, as_index=False)[numeric_cols].mean()
+
+        current_time = datetime.now().strftime("%Y%m%d_%H%M%S")
+        filename = f'test_analysis_group_{current_time}.csv'
+
+        grouped.to_csv(os.path.join(output_path, filename), index=False)

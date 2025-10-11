@@ -9,32 +9,35 @@ class Secret:
         self.logger = logger
 
         self.type = arguments['type']
-        self.save = False
-
-        if self.type not in ['image', 'TXT', 'MAX_CAP']:
-            raise ValueError("Invalid type. Supported types are 'image', 'TXT', 'MAX_CAP'.")
-
-        self.seed = arguments.get('seed', random.randint(0, 2**32 - 1))
-        self.name = arguments.get('name')
-
-        if arguments.get('path') is not None:
-            self.save = True
-            self.path = arguments['path']
-        else:
-            self.save = False
-        
+        size = arguments['size']
+        self.save_directory = arguments['save_directory']
         self.binary_data = None
         self.full_text = None
-        self.size = 0
-        
-        if self.type in ['TXT']:
-            self.full_text = self.generate_dummy_text(arguments['size'])
-            self.binary_data = BitVector(textstring=self.full_text)
-            self.size = len(self.binary_data)
 
-            if self.save:
-                self.save_as_file()
-    
+        self.seed = arguments.get('seed', random.randint(0, 2**32 - 1))
+
+        self.create_secret_from_dummy_text(size, self.save_directory)
+
+
+        # if arguments.get('path') is not None:
+        #     self.save = True
+        #     self.path = arguments['path']
+        # else:
+        #     self.save = False
+        
+        # self.binary_data = None
+        # self.full_text = None
+        # self.size = 0
+        
+        # if self.type in ['TXT']:
+        #     self.full_text = self.generate_dummy_text(arguments['size'])
+        #     self.binary_data = BitVector(textstring=self.full_text)
+        #     self.size = len(self.binary_data)
+
+        #     if self.save:
+        #         self.save_as_file()
+
+
     def save_as_file(self, method_secret_path):
         with open(os.path.join(method_secret_path, self.name + '.txt'), 'w') as file:
             file.write(self.full_text)
