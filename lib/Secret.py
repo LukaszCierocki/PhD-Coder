@@ -14,6 +14,8 @@ class Secret:
         self.binary_data = None
         self.full_text = None
 
+        self.only_embed = arguments.get('only_embed', False)
+
         self.seed = arguments.get('seed', random.randint(0, 2**32 - 1))
 
         self.create_secret_from_dummy_text(size, self.save_directory)
@@ -78,8 +80,9 @@ class Secret:
         self.binary_data = BitVector(textstring = dummy_text)
 
         self.size = len(self.binary_data)
-        
-        self.save_as_file(method_secret_path)
+
+        if not self.only_embed:
+            self.save_as_file(method_secret_path)
 
     def to_metadata(self):
         return {

@@ -1,6 +1,7 @@
 import numpy as np
 from scipy.fftpack import dct, idct
 from scipy.linalg import svd
+from timeit import default_timer as timer
 
 from lib.Method import DIFFERENTIAL_SVD_XUE_BASED_METHOD
 
@@ -181,3 +182,75 @@ class MDCT_SVD_WEN(DIFFERENTIAL_SVD_XUE_BASED_METHOD):
         extracted_bit = 0 if dj > 0 else 1
 
         return extracted_bit
+    
+    # Wewnątrz klasy MDCT_SVD_WEN:
+
+    def embedding(self):
+        """
+        Nadpisana metoda embedding specyficznie dla metody WEN (MDCT).
+        Wymaga oknowania również ramek pomijanych (unvoiced) dla zachowania ciągłości OLA.
+        """
+        self.logger.info("########### Starting embedding process (MDCT_SVD_WEN) ###########")
+
+        embedded_frames = []
+        start_embedding = timer()
+
+        i = 0
+        index = 0
+        
+        # Parametr beta musi być zgodny z tym użytym w embedd_in_frame
+        # W Twoim kodzie MDCT_SVD_WEN używasz beta=4.0
+        BETA_PARAM = 4.0
+
+        for frame, is_voiced in zip(self.frames_to_use, self.frames_voice_status):
+
+            if is_voiced:
+                # --- RAMKI DŹWIĘCZNE (OSADZANIE) ---
+                if i < len(self.secret.binary_data):
+                    secret_bit = self.secret.binary_data[i]
+                    self.logger.debug(f"Embedding bit {secret_bit} in frame idx: {index}")
+
+                    # Ta metoda wewnątrz robi: frame * window -> MDCT -> SVD -> ... -> IMDCT -> * window
+                    # Więc zwraca ramkę już "podwójnie" oknowaną (analiza + synteza)
+                    embedded_frame = self.embedd_in_frame(frame, secret_bit, self.carrier.fs)
+                    embedded_frames.append(embedded_frame)
+                    i += 1
+                else:
+                    self.logger.debug(f"No more bits to embed, using original frame at index {index}")
+                    
+                    # POPRAWKA DLA NADMIAROWYCH RAMEK DŹWIĘCZNYCH
+                    # Musimy je przepuścić przez proces oknowania, żeby pasowały do OLA
+                    window = self.MDCTProcessor.kaiser_derived(len(frame), beta=BETA_PARAM)
+                    processed_frame = frame * window # Analiza
+                    processed_frame = processed_frame * window # Synteza
+                    embedded_frames.append(processed_frame)
+
+            else:
+                # --- RAMKI BEZDŹWIĘCZNE / CISZA (POMIJANIE) ---
+                self.logger.debug(f"Using unvoiced frame at index {index} without embedding")
+
+                # POPRAWKA KLUCZOWA DLA METODY WEN (MDCT)
+                # Zamiast wstawiać surową ramkę, symulujemy przejście przez MDCT/IMDCT
+                # poprzez nałożenie okien analizy i syntezy.
+                
+                window = self.MDCTProcessor.kaiser_derived(len(frame), beta=BETA_PARAM)
+                
+                # Okno analizy (symulacja wejścia do MDCT)
+                processed_frame = frame * window 
+                
+                # Okno syntezy (symulacja wyjścia z IMDCT)
+                processed_frame = processed_frame * window 
+                
+                embedded_frames.append(processed_frame)
+
+            index += 1
+
+        stop_embedding = timer()
+
+        self.logger.info("########### Finished embedding process ###########")
+        self.embedding_time = stop_embedding - start_embedding
+
+        # Rekonstrukcja sygnału (OLA)
+        stegobject = self.reconstruct_signal_from_frames(embedded_frames)
+
+        return stegobject.astype(np.int16)

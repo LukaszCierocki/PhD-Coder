@@ -19,9 +19,12 @@ from Methods.DIFFERENTIAL_SVD_XUE_MULTI import DIFFERENTIAL_SVD_XUE_MULTI
 from Methods.DIFFERENTIAL_SVD_PEJAS_CIEROCKI_MULTI_V1 import DIFFERENTIAL_SVD_PEJAS_CIEROCKI_MULTI_V1
 from Methods.DIFFERENTIAL_SVD_PEJAS_CIEROCKI_MULTI_V2 import DIFFERENTIAL_SVD_PEJAS_CIEROCKI_MULTI_V2
 from Methods.DIFFERENTIAL_SVD_PEJAS_CIEROCKI_MULTI_V3 import DIFFERENTIAL_SVD_PEJAS_CIEROCKI_MULTI_V3
+from Methods.DIFFERENTIAL_SVD_PEJAS_CIEROCKI_MULTI_V4 import DIFFERENTIAL_SVD_PEJAS_CIEROCKI_MULTI_V4
+from Methods.DIFFERENTIAL_SVD_PEJAS_CIEROCKI_MULTI_V5 import DIFFERENTIAL_SVD_PEJAS_CIEROCKI_MULTI_V5
 from Methods.DIFFERENTIAL_SVD_PEJAS_CIEROCKI_MULTI_PC_V1 import DIFFERENTIAL_SVD_PEJAS_CIEROCKI_MULTI_PC_V1
 from Methods.DIFFERENTIAL_SVD_PEJAS_CIEROCKI_MULTI_PC_V2 import DIFFERENTIAL_SVD_PEJAS_CIEROCKI_MULTI_PC_V2
 from Methods.DIFFERENTIAL_SVD_PEJAS_CIEROCKI_MULTI_PC_V3 import DIFFERENTIAL_SVD_PEJAS_CIEROCKI_MULTI_PC_V3
+from Methods.MDCT_SVD_PEJAS_CIEROCKI_MULTI_PC_V2 import MDCT_SVD_PEJAS_CIEROCKI_MULTI_PC_V2
 
 # Tools
 from lib.Analysis import Analysis
@@ -32,6 +35,7 @@ from lib.Secret import Secret
 METHOD_CLASS_MAP = {
     "DIFFERENTIAL_SVD_XUE":                         DIFFERENTIAL_SVD_XUE,
     "DIFFERENTIAL_SVD_XUE_MULTI":                   DIFFERENTIAL_SVD_XUE_MULTI,
+    "MDCT_SVD_PEJAS_CIEROCKI_MULTI_PC_V2":          MDCT_SVD_PEJAS_CIEROCKI_MULTI_PC_V2,
     "DIFFERENTIAL_SVD_PEJAS_CIEROCKI_MULTI_V1":     DIFFERENTIAL_SVD_PEJAS_CIEROCKI_MULTI_V1,
     "DIFFERENTIAL_SVD_PEJAS_CIEROCKI_MULTI_V2":     DIFFERENTIAL_SVD_PEJAS_CIEROCKI_MULTI_V2,
     "DIFFERENTIAL_SVD_PEJAS_CIEROCKI_MULTI_V3":     DIFFERENTIAL_SVD_PEJAS_CIEROCKI_MULTI_V3,
@@ -39,6 +43,7 @@ METHOD_CLASS_MAP = {
     "DIFFERENTIAL_SVD_PEJAS_CIEROCKI_MULTI_PC_V2" : DIFFERENTIAL_SVD_PEJAS_CIEROCKI_MULTI_PC_V2,
     "DIFFERENTIAL_SVD_PEJAS_CIEROCKI_MULTI_PC_V3" : DIFFERENTIAL_SVD_PEJAS_CIEROCKI_MULTI_PC_V3,
     "MDCT_SVD_WEN_MULTI"                          : MDCT_SVD_WEN,
+    "DIFFERENTIAL_SVD_PEJAS_CIEROCKI_MULTI_V4":     DIFFERENTIAL_SVD_PEJAS_CIEROCKI_MULTI_V4,
 }
 
 def run_test_from_config(config_path):
@@ -135,14 +140,13 @@ def run_and_save_test():
 
     try:
 
-        # TODO: Wyłączyć adaptację - i zobaczyć, jak to wpływa.
         # TODO: Czy zwiększenie poziomów, zwiększa odporność?
         # TODO: Czy zwiększenie liczby poziomów, zwiększa przeźroczystość?
         # TODO: Czy zwiększenie liczby poziomów, da się odtworzyć?
 
-        # TEST = 'BITRATE_25_BPS'
         TEST = 'DEBUG'
-        LOG_LEVEL = "DEBUG"
+        LOG_LEVEL = "INFO"
+        ONLY_EMBED = False
 
         if(LOG_LEVEL == 'INFO'):
             log_level = logging.INFO
@@ -155,169 +159,107 @@ def run_and_save_test():
         test_id = tools.get_test_id()
         current_test_directory = tools.get_current_test_directory()
 
-                
         attacks = Attacks(logger=logger)
         analysis = Analysis(logger=logger)
 
         logger.info(f"Starting test with ID: {test_id}")
 
+        if TEST == 'FOR_CLASSIFIER':
+            test_to_perform = {'NOISE' : False, 'HIGHPASS' : False, 'LOWPASS' : False, 'REQUANTIZE' : False, 'MP3' : False, 'JITTER' : False, 'RESAMPLE' : False, 'CLIPPED' : False}
+
+            methods = [
+                MDCT_SVD_WEN(                               {'ADAPTIVE': False, 'ALPHA': 0.7, 'BETA': 0.7, 'TYPE_OF_VAD': 'rVAD', 'WHERE_TO_HIDE': 'VOICED', 'FREQ_L': 1500, 'FREQ_H': 2500, 'FRAME_LENGTH': 40, 'HOP_DURATION_MS': 20, 'LEVELS': 1, 'HANKEL_ROWS': 2}, logger),
+                DIFFERENTIAL_SVD_XUE(                       {'ADAPTIVE': False, 'ALPHA': 0.7, 'BETA': 0.7, 'TYPE_OF_VAD': 'rVAD', 'WHERE_TO_HIDE': 'VOICED', 'FREQ_L': 1500, 'FREQ_H': 2500, 'FRAME_LENGTH': 20, 'HOP_DURATION_MS': 20, 'LEVELS': 1, 'HANKEL_ROWS': 2}, logger),
+                DIFFERENTIAL_SVD_PEJAS_CIEROCKI_MULTI_V1(   {'ADAPTIVE': False,  'ALPHA': 0.7, 'BETA': 0.7, 'TYPE_OF_VAD': 'rVAD', 'WHERE_TO_HIDE': 'VOICED', 'FREQ_L': 1500, 'FREQ_H': 2500, 'FRAME_LENGTH': 20, 'HOP_DURATION_MS': 20, 'LEVELS': 1, 'HANKEL_ROWS': 2}, logger),
+                DIFFERENTIAL_SVD_PEJAS_CIEROCKI_MULTI_V2(   {'ADAPTIVE': True,  'ALPHA': 0.7, 'BETA': 0.7, 'TYPE_OF_VAD': 'rVAD', 'WHERE_TO_HIDE': 'VOICED', 'FREQ_L': 1500, 'FREQ_H': 2500, 'FRAME_LENGTH': 20, 'HOP_DURATION_MS': 20, 'LEVELS': 1, 'HANKEL_ROWS': 2}, logger),
+                DIFFERENTIAL_SVD_PEJAS_CIEROCKI_MULTI_PC_V1({'ADAPTIVE': False,  'ALPHA': 0.7, 'BETA': 0.7, 'TYPE_OF_VAD': 'rVAD', 'WHERE_TO_HIDE': 'VOICED', 'FREQ_L': 1500, 'FREQ_H': 2500, 'FRAME_LENGTH': 20, 'HOP_DURATION_MS': 20, 'LEVELS': 1, 'HANKEL_ROWS': 2}, logger),
+                DIFFERENTIAL_SVD_PEJAS_CIEROCKI_MULTI_PC_V2({'ADAPTIVE': True,  'ALPHA': 0.7, 'BETA': 0.7, 'TYPE_OF_VAD': 'rVAD', 'WHERE_TO_HIDE': 'VOICED', 'FREQ_L': 1500, 'FREQ_H': 2500, 'FRAME_LENGTH': 20, 'HOP_DURATION_MS': 20, 'LEVELS': 1, 'HANKEL_ROWS': 2}, logger),
+                DIFFERENTIAL_SVD_PEJAS_CIEROCKI_MULTI_PC_V3({'ADAPTIVE': True,  'ALPHA': 0.7, 'BETA': 0.7, 'TYPE_OF_VAD': 'rVAD', 'WHERE_TO_HIDE': 'VOICED', 'FREQ_L': 1500, 'FREQ_H': 2500, 'FRAME_LENGTH': 20, 'HOP_DURATION_MS': 20, 'LEVELS': 8, 'HANKEL_ROWS': 2}, logger),
+            ]
+
+            carriers = tools.load_carriers()
+    
         if TEST == 'DEBUG':
-            test_to_perform = {'NOISE' : False, 'HIGHPASS' : False, 'LOWPASS' : False, 'REQUANTIZE' : False, 'MP3' : False, 'JITTER' : False, 'RESAMPLE' : False, 'CLIPPED' : False}
 
-            methods = [
-                # 125 BPS
-                # MDCT_SVD_WEN(                                 {'ALPHA': 0.7, 'BETA': 0.7, 'TYPE_OF_VAD' : 'rVAD', 'WHERE_TO_HIDE': 'VOICED', 'FREQ_L': 1500, 'FREQ_H': 2500, 'FRAME_LENGTH': 16, 'HOP_DURATION_MS' : 8,'LEVELS' :  1, 'HANKEL_ROWS' : 2}, logger),
-                # DIFFERENTIAL_SVD_XUE(                         {'ALPHA': 0.7, 'BETA': 0.7, 'TYPE_OF_VAD' : 'rVAD', 'WHERE_TO_HIDE': 'VOICED', 'FREQ_L': 1500, 'FREQ_H': 2500, 'FRAME_LENGTH': 8, 'HOP_DURATION_MS' : 8}, logger),
-                # DIFFERENTIAL_SVD_PEJAS_CIEROCKI_MULTI_V1(     {'ALPHA': 0.7, 'BETA': 0.7, 'TYPE_OF_VAD' : 'rVAD', 'WHERE_TO_HIDE': 'VOICED', 'FREQ_L': 1500, 'FREQ_H': 2500, 'FRAME_LENGTH': 8, 'HOP_DURATION_MS' : 8, 'LEVELS' : 1, 'HANKEL_ROWS' : 2}, logger),
-                # DIFFERENTIAL_SVD_PEJAS_CIEROCKI_MULTI_V2(     {'ALPHA': 0.7, 'BETA': 0.7, 'TYPE_OF_VAD' : 'rVAD', 'WHERE_TO_HIDE': 'VOICED', 'FREQ_L': 1500, 'FREQ_H': 2500, 'FRAME_LENGTH': 8, 'HOP_DURATION_MS' : 8, 'LEVELS' : 1, 'HANKEL_ROWS' : 2}, logger),
-                # DIFFERENTIAL_SVD_PEJAS_CIEROCKI_MULTI_PC_V1(  {'ALPHA': 0.7, 'BETA': 0.7, 'TYPE_OF_VAD' : 'rVAD', 'WHERE_TO_HIDE': 'VOICED', 'FREQ_L': 1500, 'FREQ_H': 2500, 'FRAME_LENGTH': 8, 'HOP_DURATION_MS' : 8, 'LEVELS' : 1, 'HANKEL_ROWS' : 2}, logger),
-                # DIFFERENTIAL_SVD_PEJAS_CIEROCKI_MULTI_PC_V2(  {'ALPHA': 0.7, 'BETA': 0.7, 'TYPE_OF_VAD' : 'rVAD', 'WHERE_TO_HIDE': 'VOICED', 'FREQ_L': 1500, 'FREQ_H': 2500, 'FRAME_LENGTH': 8, 'HOP_DURATION_MS' : 8, 'LEVELS' : 1, 'HANKEL_ROWS' : 2}, logger),
-                # 100 BPS
-                # MDCT_SVD_WEN(                                 {'ALPHA': 0.7, 'BETA': 0.7, 'TYPE_OF_VAD' : 'rVAD', 'WHERE_TO_HIDE': 'VOICED', 'FREQ_L': 1500, 'FREQ_H': 2500, 'FRAME_LENGTH': 20, 'HOP_DURATION_MS' : 10,'LEVELS' :  1, 'HANKEL_ROWS' : 2}, logger),
-                # DIFFERENTIAL_SVD_XUE(                         {'ALPHA': 0.7, 'BETA': 0.7, 'TYPE_OF_VAD' : 'rVAD', 'WHERE_TO_HIDE': 'VOICED', 'FREQ_L': 1500, 'FREQ_H': 2500, 'FRAME_LENGTH': 10, 'HOP_DURATION_MS' : 10}, logger),
-                # DIFFERENTIAL_SVD_PEJAS_CIEROCKI_MULTI_V1(     {'ALPHA': 0.7, 'BETA': 0.7, 'TYPE_OF_VAD' : 'rVAD', 'WHERE_TO_HIDE': 'VOICED', 'FREQ_L': 1500, 'FREQ_H': 2500, 'FRAME_LENGTH': 10, 'HOP_DURATION_MS' : 10, 'LEVELS' : 1, 'HANKEL_ROWS' : 2}, logger),
-                # DIFFERENTIAL_SVD_PEJAS_CIEROCKI_MULTI_V2(     {'ALPHA': 0.7, 'BETA': 0.7, 'TYPE_OF_VAD' : 'rVAD', 'WHERE_TO_HIDE': 'VOICED', 'FREQ_L': 1500, 'FREQ_H': 2500, 'FRAME_LENGTH': 10, 'HOP_DURATION_MS' : 10, 'LEVELS' : 1, 'HANKEL_ROWS' : 2}, logger),
-                # DIFFERENTIAL_SVD_PEJAS_CIEROCKI_MULTI_PC_V2(  {'ALPHA': 0.7, 'BETA': 0.7, 'TYPE_OF_VAD' : 'rVAD', 'WHERE_TO_HIDE': 'VOICED', 'FREQ_L': 1500, 'FREQ_H': 2500, 'FRAME_LENGTH': 20, 'HOP_DURATION_MS' : 20, 'LEVELS' : 1, 'HANKEL_ROWS' : 2}, logger),
-                DIFFERENTIAL_SVD_PEJAS_CIEROCKI_MULTI_PC_V2(  {'ALPHA': 0.7, 'BETA': 0.7, 'TYPE_OF_VAD' : 'rVAD', 'WHERE_TO_HIDE': 'VOICED', 'ADAPTIVE' : False, 'FREQ_L': 1500, 'FREQ_H': 2500, 'FRAME_LENGTH': 20, 'HOP_DURATION_MS' : 20, 'LEVELS' : 1, 'HANKEL_ROWS' : 2}, logger),
-                DIFFERENTIAL_SVD_PEJAS_CIEROCKI_MULTI_PC_V2(  {'ALPHA': 0.7, 'BETA': 0.7, 'TYPE_OF_VAD' : 'rVAD', 'WHERE_TO_HIDE': 'VOICED', 'ADAPTIVE' : True , 'FREQ_L': 1500, 'FREQ_H': 2500, 'FRAME_LENGTH': 20, 'HOP_DURATION_MS' : 20, 'LEVELS' : 1, 'HANKEL_ROWS' : 2}, logger),                
-                # DIFFERENTIAL_SVD_PEJAS_CIEROCKI_MULTI_PC_V3(  {'ALPHA': 0.7, 'BETA': 0.7, 'TYPE_OF_VAD' : 'rVAD', 'WHERE_TO_HIDE': 'VOICED', 'FREQ_L': 1500, 'FREQ_H': 2500, 'FRAME_LENGTH': 20, 'HOP_DURATION_MS' : 20, 'LEVELS' : 8, 'HANKEL_ROWS' : 2}, logger),
-
-                # # 62.5 BPS
-                # MDCT_SVD_WEN(                                 {'ALPHA': 0.7, 'BETA': 0.7, 'TYPE_OF_VAD' : 'rVAD', 'WHERE_TO_HIDE': 'VOICED', 'FREQ_L': 1500, 'FREQ_H': 2500, 'FRAME_LENGTH': 32, 'HOP_DURATION_MS' : 16,'LEVELS' :  1, 'HANKEL_ROWS' : 2}, logger),
-                # DIFFERENTIAL_SVD_XUE(                         {'ALPHA': 0.7, 'BETA': 0.7, 'TYPE_OF_VAD' : 'rVAD', 'WHERE_TO_HIDE': 'VOICED', 'FREQ_L': 1500, 'FREQ_H': 2500, 'FRAME_LENGTH': 16, 'HOP_DURATION_MS' : 16}, logger),
-                # DIFFERENTIAL_SVD_PEJAS_CIEROCKI_MULTI_V1(     {'ALPHA': 0.7, 'BETA': 0.7, 'TYPE_OF_VAD' : 'rVAD', 'WHERE_TO_HIDE': 'VOICED', 'FREQ_L': 1500, 'FREQ_H': 2500, 'FRAME_LENGTH': 16, 'HOP_DURATION_MS' : 16, 'LEVELS' : 1, 'HANKEL_ROWS' : 2}, logger),
-                # DIFFERENTIAL_SVD_PEJAS_CIEROCKI_MULTI_V2(     {'ALPHA': 0.7, 'BETA': 0.7, 'TYPE_OF_VAD' : 'rVAD', 'WHERE_TO_HIDE': 'VOICED', 'FREQ_L': 1500, 'FREQ_H': 2500, 'FRAME_LENGTH': 16, 'HOP_DURATION_MS' : 16, 'LEVELS' : 1, 'HANKEL_ROWS' : 2}, logger),
-                # DIFFERENTIAL_SVD_PEJAS_CIEROCKI_MULTI_PC_V1(  {'ALPHA': 0.7, 'BETA': 0.7, 'TYPE_OF_VAD' : 'rVAD', 'WHERE_TO_HIDE': 'VOICED', 'FREQ_L': 1500, 'FREQ_H': 2500, 'FRAME_LENGTH': 16, 'HOP_DURATION_MS' : 16, 'LEVELS' : 1, 'HANKEL_ROWS' : 2}, logger),
-                # DIFFERENTIAL_SVD_PEJAS_CIEROCKI_MULTI_PC_V2(  {'ALPHA': 0.7, 'BETA': 0.7, 'TYPE_OF_VAD' : 'rVAD', 'WHERE_TO_HIDE': 'VOICED', 'FREQ_L': 1500, 'FREQ_H': 2500, 'FRAME_LENGTH': 16, 'HOP_DURATION_MS' : 16, 'LEVELS' : 1, 'HANKEL_ROWS' : 2}, logger),
-                # # 50 BPS
-                # MDCT_SVD_WEN(                                 {'ALPHA': 0.7, 'BETA': 0.7, 'TYPE_OF_VAD' : 'rVAD', 'WHERE_TO_HIDE': 'VOICED', 'FREQ_L': 1500, 'FREQ_H': 2500, 'FRAME_LENGTH': 40, 'HOP_DURATION_MS' : 20,'LEVELS' :  1, 'HANKEL_ROWS' : 2}, logger),
-                # DIFFERENTIAL_SVD_XUE(                         {'ALPHA': 0.7, 'BETA': 0.7, 'TYPE_OF_VAD' : 'rVAD', 'WHERE_TO_HIDE': 'VOICED', 'FREQ_L': 1500, 'FREQ_H': 2500, 'FRAME_LENGTH': 20, 'HOP_DURATION_MS' : 20}, logger),
-                # DIFFERENTIAL_SVD_PEJAS_CIEROCKI_MULTI_V1(     {'ALPHA': 0.7, 'BETA': 0.7, 'TYPE_OF_VAD' : 'rVAD', 'WHERE_TO_HIDE': 'VOICED', 'FREQ_L': 1500, 'FREQ_H': 2500, 'FRAME_LENGTH': 20, 'HOP_DURATION_MS' : 20, 'LEVELS' : 1, 'HANKEL_ROWS' : 2}, logger),
-                # DIFFERENTIAL_SVD_PEJAS_CIEROCKI_MULTI_V2(     {'ALPHA': 0.7, 'BETA': 0.7, 'TYPE_OF_VAD' : 'rVAD', 'WHERE_TO_HIDE': 'VOICED', 'FREQ_L': 1500, 'FREQ_H': 2500, 'FRAME_LENGTH': 20, 'HOP_DURATION_MS' : 20, 'LEVELS' : 1, 'HANKEL_ROWS' : 2}, logger),
-                # DIFFERENTIAL_SVD_PEJAS_CIEROCKI_MULTI_PC_V1(  {'ALPHA': 0.7, 'BETA': 0.7, 'TYPE_OF_VAD' : 'rVAD', 'WHERE_TO_HIDE': 'VOICED', 'FREQ_L': 1500, 'FREQ_H': 2500, 'FRAME_LENGTH': 20, 'HOP_DURATION_MS' : 20, 'LEVELS' : 1, 'HANKEL_ROWS' : 2}, logger),
-                # DIFFERENTIAL_SVD_PEJAS_CIEROCKI_MULTI_PC_V2(  {'ALPHA': 0.7, 'BETA': 0.7, 'TYPE_OF_VAD' : 'rVAD', 'WHERE_TO_HIDE': 'VOICED', 'FREQ_L': 1500, 'FREQ_H': 2500, 'FRAME_LENGTH': 20, 'HOP_DURATION_MS' : 20, 'LEVELS' : 1, 'HANKEL_ROWS' : 2}, logger),
-                # # 40 BPS
-                # MDCT_SVD_WEN(                                 {'ALPHA': 0.7, 'BETA': 0.7, 'TYPE_OF_VAD' : 'rVAD', 'WHERE_TO_HIDE': 'VOICED', 'FREQ_L': 1500, 'FREQ_H': 2500, 'FRAME_LENGTH': 50, 'HOP_DURATION_MS' : 25,'LEVELS' :  1, 'HANKEL_ROWS' : 2}, logger),
-                # DIFFERENTIAL_SVD_XUE(                         {'ALPHA': 0.7, 'BETA': 0.7, 'TYPE_OF_VAD' : 'rVAD', 'WHERE_TO_HIDE': 'VOICED', 'FREQ_L': 1500, 'FREQ_H': 2500, 'FRAME_LENGTH': 25, 'HOP_DURATION_MS' : 25}, logger),
-                # DIFFERENTIAL_SVD_PEJAS_CIEROCKI_MULTI_V1(     {'ALPHA': 0.7, 'BETA': 0.7, 'TYPE_OF_VAD' : 'rVAD', 'WHERE_TO_HIDE': 'VOICED', 'FREQ_L': 1500, 'FREQ_H': 2500, 'FRAME_LENGTH': 25, 'HOP_DURATION_MS' : 25, 'LEVELS' : 1, 'HANKEL_ROWS' : 2}, logger),
-                # DIFFERENTIAL_SVD_PEJAS_CIEROCKI_MULTI_V2(     {'ALPHA': 0.7, 'BETA': 0.7, 'TYPE_OF_VAD' : 'rVAD', 'WHERE_TO_HIDE': 'VOICED', 'FREQ_L': 1500, 'FREQ_H': 2500, 'FRAME_LENGTH': 25, 'HOP_DURATION_MS' : 25, 'LEVELS' : 1, 'HANKEL_ROWS' : 2}, logger),
-                # DIFFERENTIAL_SVD_PEJAS_CIEROCKI_MULTI_PC_V1(  {'ALPHA': 0.7, 'BETA': 0.7, 'TYPE_OF_VAD' : 'rVAD', 'WHERE_TO_HIDE': 'VOICED', 'FREQ_L': 1500, 'FREQ_H': 2500, 'FRAME_LENGTH': 25, 'HOP_DURATION_MS' : 25, 'LEVELS' : 1, 'HANKEL_ROWS' : 2}, logger),
-                # DIFFERENTIAL_SVD_PEJAS_CIEROCKI_MULTI_PC_V2(  {'ALPHA': 0.7, 'BETA': 0.7, 'TYPE_OF_VAD' : 'rVAD', 'WHERE_TO_HIDE': 'VOICED', 'FREQ_L': 1500, 'FREQ_H': 2500, 'FRAME_LENGTH': 25, 'HOP_DURATION_MS' : 25, 'LEVELS' : 1, 'HANKEL_ROWS' : 2}, logger),
-                # # 25 BPS
-                # MDCT_SVD_WEN(                                 {'ALPHA': 0.7, 'BETA': 0.7, 'TYPE_OF_VAD' : 'rVAD', 'WHERE_TO_HIDE': 'VOICED', 'FREQ_L': 1500, 'FREQ_H': 2500, 'FRAME_LENGTH': 80, 'HOP_DURATION_MS' : 40,'LEVELS' :  1, 'HANKEL_ROWS' : 2}, logger),
-                # DIFFERENTIAL_SVD_XUE(                         {'ALPHA': 0.7, 'BETA': 0.7, 'TYPE_OF_VAD' : 'rVAD', 'WHERE_TO_HIDE': 'VOICED', 'FREQ_L': 1500, 'FREQ_H': 2500, 'FRAME_LENGTH': 40, 'HOP_DURATION_MS' : 40}, logger),
-                # DIFFERENTIAL_SVD_PEJAS_CIEROCKI_MULTI_V1(     {'ALPHA': 0.7, 'BETA': 0.7, 'TYPE_OF_VAD' : 'rVAD', 'WHERE_TO_HIDE': 'VOICED', 'FREQ_L': 1500, 'FREQ_H': 2500, 'FRAME_LENGTH': 40, 'HOP_DURATION_MS' : 40, 'LEVELS' : 1, 'HANKEL_ROWS' : 2}, logger),
-                # DIFFERENTIAL_SVD_PEJAS_CIEROCKI_MULTI_V2(     {'ALPHA': 0.7, 'BETA': 0.7, 'TYPE_OF_VAD' : 'rVAD', 'WHERE_TO_HIDE': 'VOICED', 'FREQ_L': 1500, 'FREQ_H': 2500, 'FRAME_LENGTH': 40, 'HOP_DURATION_MS' : 40, 'LEVELS' : 1, 'HANKEL_ROWS' : 2}, logger),
-                # DIFFERENTIAL_SVD_PEJAS_CIEROCKI_MULTI_PC_V1(  {'ALPHA': 0.7, 'BETA': 0.7, 'TYPE_OF_VAD' : 'rVAD', 'WHERE_TO_HIDE': 'VOICED', 'FREQ_L': 1500, 'FREQ_H': 2500, 'FRAME_LENGTH': 40, 'HOP_DURATION_MS' : 40, 'LEVELS' : 1, 'HANKEL_ROWS' : 2}, logger),
-                # DIFFERENTIAL_SVD_PEJAS_CIEROCKI_MULTI_PC_V2(  {'ALPHA': 0.7, 'BETA': 0.7, 'TYPE_OF_VAD' : 'rVAD', 'WHERE_TO_HIDE': 'VOICED', 'FREQ_L': 1500, 'FREQ_H': 2500, 'FRAME_LENGTH': 40, 'HOP_DURATION_MS' : 40, 'LEVELS' : 1, 'HANKEL_ROWS' : 2}, logger),
-                # # 12.5 BPS
-                # MDCT_SVD_WEN(                                 {'ALPHA': 0.7, 'BETA': 0.7, 'TYPE_OF_VAD' : 'rVAD', 'WHERE_TO_HIDE': 'VOICED', 'FREQ_L': 1500, 'FREQ_H': 2500, 'FRAME_LENGTH': 160, 'HOP_DURATION_MS' : 80,'LEVELS' :  1, 'HANKEL_ROWS' : 2}, logger),
-                # DIFFERENTIAL_SVD_XUE(                         {'ALPHA': 0.7, 'BETA': 0.7, 'TYPE_OF_VAD' : 'rVAD', 'WHERE_TO_HIDE': 'VOICED', 'FREQ_L': 1500, 'FREQ_H': 2500, 'FRAME_LENGTH': 80, 'HOP_DURATION_MS' : 80}, logger),
-                # DIFFERENTIAL_SVD_PEJAS_CIEROCKI_MULTI_V1(     {'ALPHA': 0.7, 'BETA': 0.7, 'TYPE_OF_VAD' : 'rVAD', 'WHERE_TO_HIDE': 'VOICED', 'FREQ_L': 1500, 'FREQ_H': 2500, 'FRAME_LENGTH': 80, 'HOP_DURATION_MS' : 80, 'LEVELS' : 1, 'HANKEL_ROWS' : 2}, logger),
-                # DIFFERENTIAL_SVD_PEJAS_CIEROCKI_MULTI_V2(     {'ALPHA': 0.7, 'BETA': 0.7, 'TYPE_OF_VAD' : 'rVAD', 'WHERE_TO_HIDE': 'VOICED', 'FREQ_L': 1500, 'FREQ_H': 2500, 'FRAME_LENGTH': 80, 'HOP_DURATION_MS' : 80, 'LEVELS' : 1, 'HANKEL_ROWS' : 2}, logger),
-                # DIFFERENTIAL_SVD_PEJAS_CIEROCKI_MULTI_PC_V1(  {'ALPHA': 0.7, 'BETA': 0.7, 'TYPE_OF_VAD' : 'rVAD', 'WHERE_TO_HIDE': 'VOICED', 'FREQ_L': 1500, 'FREQ_H': 2500, 'FRAME_LENGTH': 80, 'HOP_DURATION_MS' : 80, 'LEVELS' : 1, 'HANKEL_ROWS' : 2}, logger),
-                # DIFFERENTIAL_SVD_PEJAS_CIEROCKI_MULTI_PC_V2(  {'ALPHA': 0.7, 'BETA': 0.7, 'TYPE_OF_VAD' : 'rVAD', 'WHERE_TO_HIDE': 'VOICED', 'FREQ_L': 1500, 'FREQ_H': 2500, 'FRAME_LENGTH': 80, 'HOP_DURATION_MS' : 80, 'LEVELS' : 1, 'HANKEL_ROWS' : 2}, logger),
-            ]
-            
-            # carriers = [tools.load_carrier('arctic_a0001')]
-            carriers = tools.load_carriers()
-
-        elif TEST == 'BITRATE_100_BPS':
+            # # TODO: 50 bps | Without attack | All methods | All carierss
             test_to_perform = {'NOISE' : False, 'HIGHPASS' : False, 'LOWPASS' : False, 'REQUANTIZE' : False, 'MP3' : False, 'JITTER' : False, 'RESAMPLE' : False, 'CLIPPED' : False}
             
             methods = [
-                MDCT_SVD_WEN(                                 {'ALPHA': 0.6, 'BETA': 0.6, 'TYPE_OF_VAD' : 'rVAD', 'WHERE_TO_HIDE': 'VOICED', 'FREQ_L': 1500, 'FREQ_H': 2500, 'FRAME_LENGTH': 20, 'HOP_DURATION_MS' : 10,'LEVELS' :  1, 'HANKEL_ROWS' : 2}, logger),
-                DIFFERENTIAL_SVD_XUE(                         {'ALPHA': 0.6, 'BETA': 0.6, 'TYPE_OF_VAD' : 'rVAD', 'WHERE_TO_HIDE': 'VOICED', 'FREQ_L': 1500, 'FREQ_H': 2500, 'FRAME_LENGTH': 10, 'HOP_DURATION_MS' : 10}, logger),
-                DIFFERENTIAL_SVD_PEJAS_CIEROCKI_MULTI_V1(     {'ALPHA': 0.6, 'BETA': 0.6, 'TYPE_OF_VAD' : 'rVAD', 'WHERE_TO_HIDE': 'VOICED', 'FREQ_L': 1500, 'FREQ_H': 2500, 'FRAME_LENGTH': 10, 'HOP_DURATION_MS' : 10, 'LEVELS' : 1, 'HANKEL_ROWS' : 2}, logger),
-                DIFFERENTIAL_SVD_PEJAS_CIEROCKI_MULTI_V2(     {'ALPHA': 0.6, 'BETA': 0.6, 'TYPE_OF_VAD' : 'rVAD', 'WHERE_TO_HIDE': 'VOICED', 'FREQ_L': 1500, 'FREQ_H': 2500, 'FRAME_LENGTH': 10, 'HOP_DURATION_MS' : 10, 'LEVELS' : 1, 'HANKEL_ROWS' : 2}, logger),
-                DIFFERENTIAL_SVD_PEJAS_CIEROCKI_MULTI_PC_V1(  {'ALPHA': 0.6, 'BETA': 0.6, 'TYPE_OF_VAD' : 'rVAD', 'WHERE_TO_HIDE': 'VOICED', 'FREQ_L': 1500, 'FREQ_H': 2500, 'FRAME_LENGTH': 10, 'HOP_DURATION_MS' : 10, 'LEVELS' : 1, 'HANKEL_ROWS' : 2}, logger),
-                DIFFERENTIAL_SVD_PEJAS_CIEROCKI_MULTI_PC_V2(  {'ALPHA': 0.6, 'BETA': 0.6, 'TYPE_OF_VAD' : 'rVAD', 'WHERE_TO_HIDE': 'VOICED', 'FREQ_L': 1500, 'FREQ_H': 2500, 'FRAME_LENGTH': 10, 'HOP_DURATION_MS' : 10, 'LEVELS' : 1, 'HANKEL_ROWS' : 2}, logger),
+                MDCT_SVD_WEN(                               {'REDUCED' : False, 'ADAPTIVE': False, 'ALPHA': 0.7, 'BETA': 0.7, 'TYPE_OF_VAD': 'rVAD', 'WHERE_TO_HIDE': 'VOICED', 'FREQ_L': 500, 'FREQ_H': 1500, 'FRAME_LENGTH': 40, 'HOP_DURATION_MS': 20, 'LEVELS': 1, 'HANKEL_ROWS': 2}, logger),
+                DIFFERENTIAL_SVD_XUE(                       {'REDUCED' : False, 'ADAPTIVE': False, 'ALPHA': 0.7, 'BETA': 0.7, 'TYPE_OF_VAD': 'rVAD', 'WHERE_TO_HIDE': 'VOICED', 'FREQ_L': 500, 'FREQ_H': 1500, 'FRAME_LENGTH': 20, 'HOP_DURATION_MS': 20, 'LEVELS': 1, 'HANKEL_ROWS': 2}, logger),
+                # DIFFERENTIAL_SVD_PEJAS_CIEROCKI_MULTI_V1(   {'REDUCED' : False, 'ADAPTIVE': False,  'ALPHA': 0.7, 'BETA': 0.7, 'TYPE_OF_VAD': 'rVAD', 'WHERE_TO_HIDE': 'VOICED', 'FREQ_L': 1500, 'FREQ_H': 2500, 'FRAME_LENGTH': 20, 'HOP_DURATION_MS': 20, 'LEVELS': 1, 'HANKEL_ROWS': 2}, logger),
+                # DIFFERENTIAL_SVD_PEJAS_CIEROCKI_MULTI_V1(                    {'REDUCED': True, 'ADAPTIVE': False, 'ALPHA': 0.7, 'BETA': 0.7, 'TYPE_OF_VAD': 'rVAD',
+                #      'WHERE_TO_HIDE': 'VOICED', 'FREQ_L': 1500, 'FREQ_H': 2500, 'FRAME_LENGTH': 20,
+                #      'HOP_DURATION_MS': 20, 'LEVELS': 1, 'HANKEL_ROWS': 2}, logger),
+
+                DIFFERENTIAL_SVD_PEJAS_CIEROCKI_MULTI_V2(   {'REDUCED' : False, 'ADAPTIVE': False,  'ALPHA': 0.7, 'BETA': 0.7, 'TYPE_OF_VAD': 'rVAD', 'WHERE_TO_HIDE': 'VOICED', 'FREQ_L': 500, 'FREQ_H': 1500, 'FRAME_LENGTH': 20, 'HOP_DURATION_MS': 20, 'LEVELS': 1, 'HANKEL_ROWS': 2}, logger),
+                # DIFFERENTIAL_SVD_PEJAS_CIEROCKI_MULTI_V2(
+                #     {'REDUCED': True, 'ADAPTIVE': True, 'ALPHA': 0.7, 'BETA': 0.7, 'TYPE_OF_VAD': 'rVAD',
+                #      'WHERE_TO_HIDE': 'VOICED', 'FREQ_L': 1500, 'FREQ_H': 2500, 'FRAME_LENGTH': 20,
+                #      'HOP_DURATION_MS': 20, 'LEVELS': 1, 'HANKEL_ROWS': 2}, logger),
+                # DIFFERENTIAL_SVD_PEJAS_CIEROCKI_MULTI_PC_V1({'REDUCED' : False, 'ADAPTIVE': False,  'ALPHA': 0.7, 'BETA': 0.7, 'TYPE_OF_VAD': 'rVAD', 'WHERE_TO_HIDE': 'VOICED', 'FREQ_L': 1500, 'FREQ_H': 2500, 'FRAME_LENGTH': 20, 'HOP_DURATION_MS': 20, 'LEVELS': 1, 'HANKEL_ROWS': 2}, logger),
+                DIFFERENTIAL_SVD_PEJAS_CIEROCKI_MULTI_PC_V2({'REDUCED' : False, 'ADAPTIVE': True,  'ALPHA': 0.7, 'BETA': 0.7, 'TYPE_OF_VAD': 'rVAD', 'WHERE_TO_HIDE': 'VOICED', 'FREQ_L': 500, 'FREQ_H': 1500, 'FRAME_LENGTH': 20, 'HOP_DURATION_MS': 20, 'LEVELS': 1, 'HANKEL_ROWS': 2}, logger),
+                # DIFFERENTIAL_SVD_PEJAS_CIEROCKI_MULTI_PC_V3({'REDUCED' : False, 'ADAPTIVE': True,  'ALPHA': 0.7, 'BETA': 0.7, 'TYPE_OF_VAD': 'rVAD', 'WHERE_TO_HIDE': 'VOICED', 'FREQ_L': 1500, 'FREQ_H': 2500, 'FRAME_LENGTH': 20, 'HOP_DURATION_MS': 20, 'LEVELS': 8, 'HANKEL_ROWS': 2}, logger),
             ]
             
             carriers = tools.load_carriers()
 
-        elif TEST == 'BITRATE_80_BPS':
-            test_to_perform = {'NOISE' : False, 'HIGHPASS' : False, 'LOWPASS' : False, 'REQUANTIZE' : False, 'MP3' : False, 'JITTER' : False, 'RESAMPLE' : False, 'CLIPPED' : False}
-            
-            methods = [
-                MDCT_SVD_WEN(                                 {'ALPHA': 0.6, 'BETA': 0.6, 'TYPE_OF_VAD' : 'rVAD', 'WHERE_TO_HIDE': 'VOICED', 'FREQ_L': 1500, 'FREQ_H': 2500, 'FRAME_LENGTH': 25, 'HOP_DURATION_MS' : 12.5,'LEVELS' :  1, 'HANKEL_ROWS' : 2}, logger),
-                DIFFERENTIAL_SVD_XUE(                         {'ALPHA': 0.6, 'BETA': 0.6, 'TYPE_OF_VAD' : 'rVAD', 'WHERE_TO_HIDE': 'VOICED', 'FREQ_L': 1500, 'FREQ_H': 2500, 'FRAME_LENGTH': 12.5, 'HOP_DURATION_MS' : 12.5}, logger),
-                DIFFERENTIAL_SVD_PEJAS_CIEROCKI_MULTI_V1(     {'ALPHA': 0.6, 'BETA': 0.6, 'TYPE_OF_VAD' : 'rVAD', 'WHERE_TO_HIDE': 'VOICED', 'FREQ_L': 1500, 'FREQ_H': 2500, 'FRAME_LENGTH': 12.5, 'HOP_DURATION_MS' : 12.5, 'LEVELS' : 1, 'HANKEL_ROWS' : 2}, logger),
-                DIFFERENTIAL_SVD_PEJAS_CIEROCKI_MULTI_V2(     {'ALPHA': 0.6, 'BETA': 0.6, 'TYPE_OF_VAD' : 'rVAD', 'WHERE_TO_HIDE': 'VOICED', 'FREQ_L': 1500, 'FREQ_H': 2500, 'FRAME_LENGTH': 12.5, 'HOP_DURATION_MS' : 12.5, 'LEVELS' : 1, 'HANKEL_ROWS' : 2}, logger),
-                DIFFERENTIAL_SVD_PEJAS_CIEROCKI_MULTI_PC_V1(  {'ALPHA': 0.6, 'BETA': 0.6, 'TYPE_OF_VAD' : 'rVAD', 'WHERE_TO_HIDE': 'VOICED', 'FREQ_L': 1500, 'FREQ_H': 2500, 'FRAME_LENGTH': 12.5, 'HOP_DURATION_MS' : 12.5, 'LEVELS' : 1, 'HANKEL_ROWS' : 2}, logger),
-                DIFFERENTIAL_SVD_PEJAS_CIEROCKI_MULTI_PC_V2(  {'ALPHA': 0.6, 'BETA': 0.6, 'TYPE_OF_VAD' : 'rVAD', 'WHERE_TO_HIDE': 'VOICED', 'FREQ_L': 1500, 'FREQ_H': 2500, 'FRAME_LENGTH': 12.5, 'HOP_DURATION_MS' : 12.5, 'LEVELS' : 1, 'HANKEL_ROWS' : 2}, logger),
-            ]
-            
-            carriers = tools.load_carriers()
+            # TODO: 62.5 bps | Without attack | All methods
+            # "Engineering Sweet Spot" - Power of 2 sizes (256 samples hop)
+            # test_to_perform = {'NOISE' : False, 'HIGHPASS' : False, 'LOWPASS' : False, 'REQUANTIZE' : False, 'MP3' : False, 'JITTER' : False, 'RESAMPLE' : False, 'CLIPPED' : False}
+            # methods = [
+            #     MDCT_SVD_WEN(                               {'ADAPTIVE': False, 'ALPHA': 0.7, 'BETA': 0.7, 'TYPE_OF_VAD': 'rVAD', 'WHERE_TO_HIDE': 'VOICED', 'FREQ_L': 1500, 'FREQ_H': 2500, 'FRAME_LENGTH': 32, 'HOP_DURATION_MS': 16, 'LEVELS': 1, 'HANKEL_ROWS': 2}, logger),
+            #     DIFFERENTIAL_SVD_XUE(                       {'ADAPTIVE': False, 'ALPHA': 0.7, 'BETA': 0.7, 'TYPE_OF_VAD': 'rVAD', 'WHERE_TO_HIDE': 'VOICED', 'FREQ_L': 1500, 'FREQ_H': 2500, 'FRAME_LENGTH': 16, 'HOP_DURATION_MS': 16, 'LEVELS': 1, 'HANKEL_ROWS': 2}, logger),
+            #     DIFFERENTIAL_SVD_PEJAS_CIEROCKI_MULTI_V1(   {'ADAPTIVE': False, 'ALPHA': 0.7, 'BETA': 0.7, 'TYPE_OF_VAD': 'rVAD', 'WHERE_TO_HIDE': 'VOICED', 'FREQ_L': 1500, 'FREQ_H': 2500, 'FRAME_LENGTH': 16, 'HOP_DURATION_MS': 16, 'LEVELS': 1, 'HANKEL_ROWS': 2}, logger),
+            #     DIFFERENTIAL_SVD_PEJAS_CIEROCKI_MULTI_V2(   {'ADAPTIVE': False, 'ALPHA': 0.7, 'BETA': 0.7, 'TYPE_OF_VAD': 'rVAD', 'WHERE_TO_HIDE': 'VOICED', 'FREQ_L': 1500, 'FREQ_H': 2500, 'FRAME_LENGTH': 16, 'HOP_DURATION_MS': 16, 'LEVELS': 1, 'HANKEL_ROWS': 2}, logger),
+            #     DIFFERENTIAL_SVD_PEJAS_CIEROCKI_MULTI_PC_V1({'ADAPTIVE': False, 'ALPHA': 0.7, 'BETA': 0.7, 'TYPE_OF_VAD': 'rVAD', 'WHERE_TO_HIDE': 'VOICED', 'FREQ_L': 1500, 'FREQ_H': 2500, 'FRAME_LENGTH': 16, 'HOP_DURATION_MS': 16, 'LEVELS': 1, 'HANKEL_ROWS': 2}, logger),
+            #     DIFFERENTIAL_SVD_PEJAS_CIEROCKI_MULTI_PC_V2({'ADAPTIVE': False, 'ALPHA': 0.7, 'BETA': 0.7, 'TYPE_OF_VAD': 'rVAD', 'WHERE_TO_HIDE': 'VOICED', 'FREQ_L': 1500, 'FREQ_H': 2500, 'FRAME_LENGTH': 16, 'HOP_DURATION_MS': 16, 'LEVELS': 1, 'HANKEL_ROWS': 2}, logger),
+            #     DIFFERENTIAL_SVD_PEJAS_CIEROCKI_MULTI_PC_V3({'ADAPTIVE': False, 'ALPHA': 0.7, 'BETA': 0.7, 'TYPE_OF_VAD': 'rVAD', 'WHERE_TO_HIDE': 'VOICED', 'FREQ_L': 1500, 'FREQ_H': 2500, 'FRAME_LENGTH': 16, 'HOP_DURATION_MS': 16, 'LEVELS': 8, 'HANKEL_ROWS': 2}, logger),
+            # ]
+            # carriers = tools.load_carriers()
 
-        elif TEST == 'BITRATE_50_BPS':
+            # TODO: 50 bps | With attacks | All methods
+            # test_to_perform = {'NOISE' : False, 'HIGHPASS' : False, 'LOWPASS' : False, 'REQUANTIZE' : False, 'MP3' : False, 'JITTER' : False, 'RESAMPLE' : False, 'CLIPPED' : False}
+            # methods = [
+            #     MDCT_SVD_WEN(                               {'ADAPTIVE': False, 'ALPHA': 0.7, 'BETA': 0.7, 'TYPE_OF_VAD': 'rVAD', 'WHERE_TO_HIDE': 'VOICED', 'FREQ_L': 1500, 'FREQ_H': 2500, 'FRAME_LENGTH': 40, 'HOP_DURATION_MS': 20, 'LEVELS': 1, 'HANKEL_ROWS': 2}, logger),
+            #     DIFFERENTIAL_SVD_XUE(                       {'ADAPTIVE': False, 'ALPHA': 0.7, 'BETA': 0.7, 'TYPE_OF_VAD': 'rVAD', 'WHERE_TO_HIDE': 'VOICED', 'FREQ_L': 1500, 'FREQ_H': 2500, 'FRAME_LENGTH': 20, 'HOP_DURATION_MS': 20, 'LEVELS': 1, 'HANKEL_ROWS': 2}, logger),
+            #     DIFFERENTIAL_SVD_PEJAS_CIEROCKI_MULTI_V1(   {'ADAPTIVE': False, 'ALPHA': 0.7, 'BETA': 0.7, 'TYPE_OF_VAD': 'rVAD', 'WHERE_TO_HIDE': 'VOICED', 'FREQ_L': 1500, 'FREQ_H': 2500, 'FRAME_LENGTH': 20, 'HOP_DURATION_MS': 20, 'LEVELS': 1, 'HANKEL_ROWS': 2}, logger),
+            #     DIFFERENTIAL_SVD_PEJAS_CIEROCKI_MULTI_V2(   {'ADAPTIVE': False, 'ALPHA': 0.7, 'BETA': 0.7, 'TYPE_OF_VAD': 'rVAD', 'WHERE_TO_HIDE': 'VOICED', 'FREQ_L': 1500, 'FREQ_H': 2500, 'FRAME_LENGTH': 20, 'HOP_DURATION_MS': 20, 'LEVELS': 1, 'HANKEL_ROWS': 2}, logger),
+            #     DIFFERENTIAL_SVD_PEJAS_CIEROCKI_MULTI_PC_V1({'ADAPTIVE': False, 'ALPHA': 0.7, 'BETA': 0.7, 'TYPE_OF_VAD': 'rVAD', 'WHERE_TO_HIDE': 'VOICED', 'FREQ_L': 1500, 'FREQ_H': 2500, 'FRAME_LENGTH': 20, 'HOP_DURATION_MS': 20, 'LEVELS': 1, 'HANKEL_ROWS': 2}, logger),
+            #     DIFFERENTIAL_SVD_PEJAS_CIEROCKI_MULTI_PC_V2({'ADAPTIVE': False, 'ALPHA': 0.7, 'BETA': 0.7, 'TYPE_OF_VAD': 'rVAD', 'WHERE_TO_HIDE': 'VOICED', 'FREQ_L': 1500, 'FREQ_H': 2500, 'FRAME_LENGTH': 20, 'HOP_DURATION_MS': 20, 'LEVELS': 1, 'HANKEL_ROWS': 2}, logger),
+            #     DIFFERENTIAL_SVD_PEJAS_CIEROCKI_MULTI_PC_V3({'ADAPTIVE': False, 'ALPHA': 0.7, 'BETA': 0.7, 'TYPE_OF_VAD': 'rVAD', 'WHERE_TO_HIDE': 'VOICED', 'FREQ_L': 1500, 'FREQ_H': 2500, 'FRAME_LENGTH': 20, 'HOP_DURATION_MS': 20, 'LEVELS': 8, 'HANKEL_ROWS': 2}, logger),
+            # ]
+            # carriers = tools.load_carriers()
 
-            test_to_perform = {'NOISE' : False, 'HIGHPASS' : False, 'LOWPASS' : False, 'REQUANTIZE' : False, 'MP3' : False, 'JITTER' : False, 'RESAMPLE' : False, 'CLIPPED' : False}
-            
-            methods = [
-                MDCT_SVD_WEN(                                 {'ALPHA': 0.6, 'BETA': 0.6, 'TYPE_OF_VAD' : 'rVAD', 'WHERE_TO_HIDE': 'VOICED', 'FREQ_L': 1500, 'FREQ_H': 2500, 'FRAME_LENGTH': 40, 'HOP_DURATION_MS' : 20,'LEVELS' :  1, 'HANKEL_ROWS' : 2}, logger),
-                DIFFERENTIAL_SVD_XUE(                         {'ALPHA': 0.6, 'BETA': 0.6, 'TYPE_OF_VAD' : 'rVAD', 'WHERE_TO_HIDE': 'VOICED', 'FREQ_L': 1500, 'FREQ_H': 2500, 'FRAME_LENGTH': 20, 'HOP_DURATION_MS' : 20}, logger),
-                DIFFERENTIAL_SVD_PEJAS_CIEROCKI_MULTI_V1(     {'ALPHA': 0.6, 'BETA': 0.6, 'TYPE_OF_VAD' : 'rVAD', 'WHERE_TO_HIDE': 'VOICED', 'FREQ_L': 1500, 'FREQ_H': 2500, 'FRAME_LENGTH': 20, 'HOP_DURATION_MS' : 20, 'LEVELS' : 1, 'HANKEL_ROWS' : 2}, logger),
-                DIFFERENTIAL_SVD_PEJAS_CIEROCKI_MULTI_V2(     {'ALPHA': 0.6, 'BETA': 0.6, 'TYPE_OF_VAD' : 'rVAD', 'WHERE_TO_HIDE': 'VOICED', 'FREQ_L': 1500, 'FREQ_H': 2500, 'FRAME_LENGTH': 20, 'HOP_DURATION_MS' : 20, 'LEVELS' : 1, 'HANKEL_ROWS' : 2}, logger),
-                DIFFERENTIAL_SVD_PEJAS_CIEROCKI_MULTI_PC_V1(  {'ALPHA': 0.6, 'BETA': 0.6, 'TYPE_OF_VAD' : 'rVAD', 'WHERE_TO_HIDE': 'VOICED', 'FREQ_L': 1500, 'FREQ_H': 2500, 'FRAME_LENGTH': 20, 'HOP_DURATION_MS' : 20, 'LEVELS' : 1, 'HANKEL_ROWS' : 2}, logger),
-                DIFFERENTIAL_SVD_PEJAS_CIEROCKI_MULTI_PC_V2(  {'ALPHA': 0.6, 'BETA': 0.6, 'TYPE_OF_VAD' : 'rVAD', 'WHERE_TO_HIDE': 'VOICED', 'FREQ_L': 1500, 'FREQ_H': 2500, 'FRAME_LENGTH': 20, 'HOP_DURATION_MS' : 20, 'LEVELS' : 1, 'HANKEL_ROWS' : 2}, logger),
-            ]
-            
-            carriers = tools.load_carriers()
+            # TODO: 25 bps | Without attack | All methods
+            # test_to_perform = {'NOISE' : False, 'HIGHPASS' : False, 'LOWPASS' : False, 'REQUANTIZE' : False, 'MP3' : False, 'JITTER' : False, 'RESAMPLE' : False, 'CLIPPED' : False}
+            # methods = [
+            #     MDCT_SVD_WEN(                               {'ADAPTIVE': False, 'ALPHA': 0.7, 'BETA': 0.7, 'TYPE_OF_VAD': 'rVAD', 'WHERE_TO_HIDE': 'VOICED', 'FREQ_L': 1500, 'FREQ_H': 2500, 'FRAME_LENGTH': 80, 'HOP_DURATION_MS': 40, 'LEVELS': 1, 'HANKEL_ROWS': 2}, logger),
+            #     DIFFERENTIAL_SVD_XUE(                       {'ADAPTIVE': False, 'ALPHA': 0.7, 'BETA': 0.7, 'TYPE_OF_VAD': 'rVAD', 'WHERE_TO_HIDE': 'VOICED', 'FREQ_L': 1500, 'FREQ_H': 2500, 'FRAME_LENGTH': 40, 'HOP_DURATION_MS': 40, 'LEVELS': 1, 'HANKEL_ROWS': 2}, logger),
+            #     DIFFERENTIAL_SVD_PEJAS_CIEROCKI_MULTI_V1(   {'ADAPTIVE': False, 'ALPHA': 0.7, 'BETA': 0.7, 'TYPE_OF_VAD': 'rVAD', 'WHERE_TO_HIDE': 'VOICED', 'FREQ_L': 1500, 'FREQ_H': 2500, 'FRAME_LENGTH': 40, 'HOP_DURATION_MS': 40, 'LEVELS': 1, 'HANKEL_ROWS': 2}, logger),
+            #     DIFFERENTIAL_SVD_PEJAS_CIEROCKI_MULTI_V2(   {'ADAPTIVE': False, 'ALPHA': 0.7, 'BETA': 0.7, 'TYPE_OF_VAD': 'rVAD', 'WHERE_TO_HIDE': 'VOICED', 'FREQ_L': 1500, 'FREQ_H': 2500, 'FRAME_LENGTH': 40, 'HOP_DURATION_MS': 40, 'LEVELS': 1, 'HANKEL_ROWS': 2}, logger),
+            #     DIFFERENTIAL_SVD_PEJAS_CIEROCKI_MULTI_PC_V1({'ADAPTIVE': False, 'ALPHA': 0.7, 'BETA': 0.7, 'TYPE_OF_VAD': 'rVAD', 'WHERE_TO_HIDE': 'VOICED', 'FREQ_L': 1500, 'FREQ_H': 2500, 'FRAME_LENGTH': 40, 'HOP_DURATION_MS': 40, 'LEVELS': 1, 'HANKEL_ROWS': 2}, logger),
+            #     DIFFERENTIAL_SVD_PEJAS_CIEROCKI_MULTI_PC_V2({'ADAPTIVE': False, 'ALPHA': 0.7, 'BETA': 0.7, 'TYPE_OF_VAD': 'rVAD', 'WHERE_TO_HIDE': 'VOICED', 'FREQ_L': 1500, 'FREQ_H': 2500, 'FRAME_LENGTH': 40, 'HOP_DURATION_MS': 40, 'LEVELS': 1, 'HANKEL_ROWS': 2}, logger),
+            #     DIFFERENTIAL_SVD_PEJAS_CIEROCKI_MULTI_PC_V3({'ADAPTIVE': False, 'ALPHA': 0.7, 'BETA': 0.7, 'TYPE_OF_VAD': 'rVAD', 'WHERE_TO_HIDE': 'VOICED', 'FREQ_L': 1500, 'FREQ_H': 2500, 'FRAME_LENGTH': 40, 'HOP_DURATION_MS': 40, 'LEVELS': 8, 'HANKEL_ROWS': 2}, logger),
+            # ]
+            # carriers = tools.load_carriers()
 
-        elif TEST == 'BITRATE_25_BPS':
-            test_to_perform = {'NOISE' : False, 'HIGHPASS' : False, 'LOWPASS' : False, 'REQUANTIZE' : False, 'MP3' : False, 'JITTER' : False, 'RESAMPLE' : False, 'CLIPPED' : False}
-            
-            methods = [
-                MDCT_SVD_WEN(                                 {'ALPHA': 0.6, 'BETA': 0.6, 'TYPE_OF_VAD' : 'rVAD', 'WHERE_TO_HIDE': 'VOICED', 'FREQ_L': 1500, 'FREQ_H': 2500, 'FRAME_LENGTH': 80, 'HOP_DURATION_MS' : 40,'LEVELS' :  1, 'HANKEL_ROWS' : 2}, logger),
-                DIFFERENTIAL_SVD_XUE(                         {'ALPHA': 0.6, 'BETA': 0.6, 'TYPE_OF_VAD' : 'rVAD', 'WHERE_TO_HIDE': 'VOICED', 'FREQ_L': 1500, 'FREQ_H': 2500, 'FRAME_LENGTH': 40, 'HOP_DURATION_MS' : 40}, logger),
-                DIFFERENTIAL_SVD_PEJAS_CIEROCKI_MULTI_V1(     {'ALPHA': 0.6, 'BETA': 0.6, 'TYPE_OF_VAD' : 'rVAD', 'WHERE_TO_HIDE': 'VOICED', 'FREQ_L': 1500, 'FREQ_H': 2500, 'FRAME_LENGTH': 40, 'HOP_DURATION_MS' : 40, 'LEVELS' : 1, 'HANKEL_ROWS' : 2}, logger),
-                DIFFERENTIAL_SVD_PEJAS_CIEROCKI_MULTI_V2(     {'ALPHA': 0.6, 'BETA': 0.6, 'TYPE_OF_VAD' : 'rVAD', 'WHERE_TO_HIDE': 'VOICED', 'FREQ_L': 1500, 'FREQ_H': 2500, 'FRAME_LENGTH': 40, 'HOP_DURATION_MS' : 40, 'LEVELS' : 1, 'HANKEL_ROWS' : 2}, logger),
-                DIFFERENTIAL_SVD_PEJAS_CIEROCKI_MULTI_PC_V1(  {'ALPHA': 0.6, 'BETA': 0.6, 'TYPE_OF_VAD' : 'rVAD', 'WHERE_TO_HIDE': 'VOICED', 'FREQ_L': 1500, 'FREQ_H': 2500, 'FRAME_LENGTH': 40, 'HOP_DURATION_MS' : 40, 'LEVELS' : 1, 'HANKEL_ROWS' : 2}, logger),
-                DIFFERENTIAL_SVD_PEJAS_CIEROCKI_MULTI_PC_V2(  {'ALPHA': 0.6, 'BETA': 0.6, 'TYPE_OF_VAD' : 'rVAD', 'WHERE_TO_HIDE': 'VOICED', 'FREQ_L': 1500, 'FREQ_H': 2500, 'FRAME_LENGTH': 40, 'HOP_DURATION_MS' : 40, 'LEVELS' : 1, 'HANKEL_ROWS' : 2}, logger),
-            ]
+            # TODO: 12.5 bps | Without attack | All methods
+            # Very robust, long frame (80ms). Good for noisy channels, bad for quick speech transitions.
+            # test_to_perform = {'NOISE' : False, 'HIGHPASS' : False, 'LOWPASS' : False, 'REQUANTIZE' : False, 'MP3' : False, 'JITTER' : False, 'RESAMPLE' : False, 'CLIPPED' : False}
+            # methods = [
+            #     MDCT_SVD_WEN(                               {'ADAPTIVE': False, 'ALPHA': 0.7, 'BETA': 0.7, 'TYPE_OF_VAD': 'rVAD', 'WHERE_TO_HIDE': 'VOICED', 'FREQ_L': 1500, 'FREQ_H': 2500, 'FRAME_LENGTH': 160,'HOP_DURATION_MS': 80, 'LEVELS': 1, 'HANKEL_ROWS': 2}, logger),
+            #     DIFFERENTIAL_SVD_XUE(                       {'ADAPTIVE': False, 'ALPHA': 0.7, 'BETA': 0.7, 'TYPE_OF_VAD': 'rVAD', 'WHERE_TO_HIDE': 'VOICED', 'FREQ_L': 1500, 'FREQ_H': 2500, 'FRAME_LENGTH': 80, 'HOP_DURATION_MS': 80, 'LEVELS': 1, 'HANKEL_ROWS': 2}, logger),
+            #     DIFFERENTIAL_SVD_PEJAS_CIEROCKI_MULTI_V1(   {'ADAPTIVE': False, 'ALPHA': 0.7, 'BETA': 0.7, 'TYPE_OF_VAD': 'rVAD', 'WHERE_TO_HIDE': 'VOICED', 'FREQ_L': 1500, 'FREQ_H': 2500, 'FRAME_LENGTH': 80, 'HOP_DURATION_MS': 80, 'LEVELS': 1, 'HANKEL_ROWS': 2}, logger),
+            #     DIFFERENTIAL_SVD_PEJAS_CIEROCKI_MULTI_V2(   {'ADAPTIVE': False, 'ALPHA': 0.7, 'BETA': 0.7, 'TYPE_OF_VAD': 'rVAD', 'WHERE_TO_HIDE': 'VOICED', 'FREQ_L': 1500, 'FREQ_H': 2500, 'FRAME_LENGTH': 80, 'HOP_DURATION_MS': 80, 'LEVELS': 1, 'HANKEL_ROWS': 2}, logger),
+            #     DIFFERENTIAL_SVD_PEJAS_CIEROCKI_MULTI_PC_V1({'ADAPTIVE': False, 'ALPHA': 0.7, 'BETA': 0.7, 'TYPE_OF_VAD': 'rVAD', 'WHERE_TO_HIDE': 'VOICED', 'FREQ_L': 1500, 'FREQ_H': 2500, 'FRAME_LENGTH': 80, 'HOP_DURATION_MS': 80, 'LEVELS': 1, 'HANKEL_ROWS': 2}, logger),
+            #     DIFFERENTIAL_SVD_PEJAS_CIEROCKI_MULTI_PC_V2({'ADAPTIVE': False, 'ALPHA': 0.7, 'BETA': 0.7, 'TYPE_OF_VAD': 'rVAD', 'WHERE_TO_HIDE': 'VOICED', 'FREQ_L': 1500, 'FREQ_H': 2500, 'FRAME_LENGTH': 80, 'HOP_DURATION_MS': 80, 'LEVELS': 1, 'HANKEL_ROWS': 2}, logger),
+            #     DIFFERENTIAL_SVD_PEJAS_CIEROCKI_MULTI_PC_V3({'ADAPTIVE': False, 'ALPHA': 0.7, 'BETA': 0.7, 'TYPE_OF_VAD': 'rVAD', 'WHERE_TO_HIDE': 'VOICED', 'FREQ_L': 1500, 'FREQ_H': 2500, 'FRAME_LENGTH': 80, 'HOP_DURATION_MS': 80, 'LEVELS': 8, 'HANKEL_ROWS': 2}, logger),
+            # ]
+            # carriers = tools.load_carriers()
+            # : 
 
-            carriers = tools.load_carriers()
         
-        # methods = [
-
-        #     # TEST
-        #     # DIFFERENTIAL_SVD_PEJAS_CIEROCKI_MULTI_V1(     {'ALPHA': 0.5, 'BETA': 0.5, 'TYPE_OF_VAD' : 'rVAD', 'WHERE_TO_HIDE': 'VOICED', 'FREQ_L': 1500, 'FREQ_H': 2500, 'FRAME_LENGTH': 10, 'HOP_DURATION_MS' : 10, 'LEVELS' : 1, 'HANKEL_ROWS' : 2}, logger),
-
-            
-
-        #     # # 25 BPS
-
-            
-        #     # # 50 BPS
-        #     # MDCT_SVD_WEN(                                 {'ALPHA': 0.6, 'BETA': 0.6, 'TYPE_OF_VAD' : 'rVAD', 'WHERE_TO_HIDE': 'VOICED', 'FREQ_L': 1500, 'FREQ_H': 2500, 'FRAME_LENGTH': 40, 'HOP_DURATION_MS' : 20,'LEVELS' :  1, 'HANKEL_ROWS' : 2}, logger),
-        #     # DIFFERENTIAL_SVD_PEJAS_CIEROCKI_MULTI_V1(     {'ALPHA': 0.6, 'BETA': 0.6, 'TYPE_OF_VAD' : 'rVAD', 'WHERE_TO_HIDE': 'VOICED', 'FREQ_L': 1500, 'FREQ_H': 2500, 'FRAME_LENGTH': 20, 'HOP_DURATION_MS' : 20, 'LEVELS' : 1, 'HANKEL_ROWS' : 2}, logger),
-        #     # DIFFERENTIAL_SVD_PEJAS_CIEROCKI_MULTI_V2(     {'ALPHA': 0.6, 'BETA': 0.6, 'TYPE_OF_VAD' : 'rVAD', 'WHERE_TO_HIDE': 'VOICED', 'FREQ_L': 1500, 'FREQ_H': 2500, 'FRAME_LENGTH': 20, 'HOP_DURATION_MS' : 20, 'LEVELS' : 1, 'HANKEL_ROWS' : 2}, logger),
-        #     # DIFFERENTIAL_SVD_XUE(                         {'ALPHA': 0.6, 'BETA': 0.6, 'TYPE_OF_VAD' : 'rVAD', 'WHERE_TO_HIDE': 'VOICED', 'FREQ_L': 1500, 'FREQ_H': 2500, 'FRAME_LENGTH': 20, 'HOP_DURATION_MS' : 20}, logger),
-        #     # DIFFERENTIAL_SVD_PEJAS_CIEROCKI_MULTI_PC_V2(  {'ALPHA': 0.6, 'BETA': 0.6, 'TYPE_OF_VAD' : 'rVAD', 'WHERE_TO_HIDE': 'VOICED', 'FREQ_L': 1500, 'FREQ_H': 2500, 'FRAME_LENGTH': 20, 'HOP_DURATION_MS' : 20, 'LEVELS' : 1, 'HANKEL_ROWS' : 2}, logger),
-        #     # DIFFERENTIAL_SVD_PEJAS_CIEROCKI_MULTI_PC_V1(  {'ALPHA': 0.6, 'BETA': 0.6, 'TYPE_OF_VAD' : 'rVAD', 'WHERE_TO_HIDE': 'VOICED', 'FREQ_L': 1500, 'FREQ_H': 2500, 'FRAME_LENGTH': 20, 'HOP_DURATION_MS' : 20, 'LEVELS' : 1, 'HANKEL_ROWS' : 2}, logger),
-
-        #     # 62.5 BPS
-        #     # MDCT_SVD_WEN(                                 {'ALPHA': 0.6, 'BETA': 0.6, 'TYPE_OF_VAD' : 'rVAD', 'WHERE_TO_HIDE': 'VOICED', 'FREQ_L': 1500, 'FREQ_H': 2500, 'FRAME_LENGTH': 32, 'HOP_DURATION_MS' : 16,'LEVELS' :  1, 'HANKEL_ROWS' : 2}, logger),
-        #     # DIFFERENTIAL_SVD_PEJAS_CIEROCKI_MULTI_V1(     {'ALPHA': 0.6, 'BETA': 0.6, 'TYPE_OF_VAD' : 'rVAD', 'WHERE_TO_HIDE': 'VOICED', 'FREQ_L': 1500, 'FREQ_H': 2500, 'FRAME_LENGTH': 16, 'HOP_DURATION_MS' : 16, 'LEVELS' : 1, 'HANKEL_ROWS' : 2}, logger),
-        #     # DIFFERENTIAL_SVD_PEJAS_CIEROCKI_MULTI_V2(     {'ALPHA': 0.6, 'BETA': 0.6, 'TYPE_OF_VAD' : 'rVAD', 'WHERE_TO_HIDE': 'VOICED', 'FREQ_L': 1500, 'FREQ_H': 2500, 'FRAME_LENGTH': 16, 'HOP_DURATION_MS' : 16, 'LEVELS' : 1, 'HANKEL_ROWS' : 2}, logger),
-        #     # DIFFERENTIAL_SVD_XUE(                         {'ALPHA': 0.6, 'BETA': 0.6, 'TYPE_OF_VAD' : 'rVAD', 'WHERE_TO_HIDE': 'VOICED', 'FREQ_L': 1500, 'FREQ_H': 2500, 'FRAME_LENGTH': 16, 'HOP_DURATION_MS' : 16}, logger),
-        #     # DIFFERENTIAL_SVD_PEJAS_CIEROCKI_MULTI_PC_V2(  {'ALPHA': 0.6, 'BETA': 0.6, 'TYPE_OF_VAD' : 'rVAD', 'WHERE_TO_HIDE': 'VOICED', 'FREQ_L': 1500, 'FREQ_H': 2500, 'FRAME_LENGTH': 16, 'HOP_DURATION_MS' : 16, 'LEVELS' : 1, 'HANKEL_ROWS' : 2}, logger),
-        #     # DIFFERENTIAL_SVD_PEJAS_CIEROCKI_MULTI_PC_V1(  {'ALPHA': 0.6, 'BETA': 0.6, 'TYPE_OF_VAD' : 'rVAD', 'WHERE_TO_HIDE': 'VOICED', 'FREQ_L': 1500, 'FREQ_H': 2500, 'FRAME_LENGTH': 16, 'HOP_DURATION_MS' : 16, 'LEVELS' : 1, 'HANKEL_ROWS' : 2}, logger),
-
-        #     # # 100 BPS
-        #     DIFFERENTIAL_SVD_XUE(                         {'ALPHA': 0.4, 'BETA': 0.4, 'TYPE_OF_VAD' : 'rVAD', 'WHERE_TO_HIDE': 'VOICED', 'FREQ_L': 1500, 'FREQ_H': 2500, 'FRAME_LENGTH': 10, 'HOP_DURATION_MS' : 10}, logger),
-        #     # MDCT_SVD_WEN(                                 {'ALPHA': 0.4, 'BETA': 0.4, 'TYPE_OF_VAD' : 'rVAD', 'WHERE_TO_HIDE': 'VOICED', 'FREQ_L': 1500, 'FREQ_H': 2500, 'FRAME_LENGTH': 20, 'HOP_DURATION_MS' : 10,'LEVELS' :  1, 'HANKEL_ROWS' : 2}, logger),
-        #     # DIFFERENTIAL_SVD_PEJAS_CIEROCKI_MULTI_V1(     {'ALPHA': 0.4, 'BETA': 0.4, 'TYPE_OF_VAD' : 'rVAD', 'WHERE_TO_HIDE': 'VOICED', 'FREQ_L': 1500, 'FREQ_H': 2500, 'FRAME_LENGTH': 10, 'HOP_DURATION_MS' : 10, 'LEVELS' : 1, 'HANKEL_ROWS' : 2}, logger),
-        #     # DIFFERENTIAL_SVD_PEJAS_CIEROCKI_MULTI_V2(     {'ALPHA': 0.4, 'BETA': 0.4, 'TYPE_OF_VAD' : 'rVAD', 'WHERE_TO_HIDE': 'VOICED', 'FREQ_L': 1500, 'FREQ_H': 2500, 'FRAME_LENGTH': 10, 'HOP_DURATION_MS' : 10, 'LEVELS' : 1, 'HANKEL_ROWS' : 2}, logger),
-        #     # DIFFERENTIAL_SVD_PEJAS_CIEROCKI_MULTI_V3(     {'ALPHA': 0.4, 'BETA': 0.4, 'TYPE_OF_VAD' : 'rVAD', 'WHERE_TO_HIDE': 'VOICED', 'FREQ_L': 1500, 'FREQ_H': 2500, 'FRAME_LENGTH': 10, 'HOP_DURATION_MS' : 10, 'LEVELS' : 4, 'HANKEL_ROWS' : 2}, logger),
-        #     # DIFFERENTIAL_SVD_PEJAS_CIEROCKI_MULTI_PC_V1(  {'ALPHA': 0.4, 'BETA': 0.4, 'TYPE_OF_VAD' : 'rVAD', 'WHERE_TO_HIDE': 'VOICED', 'FREQ_L': 1500, 'FREQ_H': 2500, 'FRAME_LENGTH': 10, 'HOP_DURATION_MS' : 10, 'LEVELS' : 1, 'HANKEL_ROWS' : 2}, logger),
-        #     # DIFFERENTIAL_SVD_PEJAS_CIEROCKI_MULTI_PC_V2(  {'ALPHA': 0.4, 'BETA': 0.4, 'TYPE_OF_VAD' : 'rVAD', 'WHERE_TO_HIDE': 'VOICED', 'FREQ_L': 1500, 'FREQ_H': 2500, 'FRAME_LENGTH': 10, 'HOP_DURATION_MS' : 10, 'LEVELS' : 1, 'HANKEL_ROWS' : 2}, logger),
-        #     # DIFFERENTIAL_SVD_PEJAS_CIEROCKI_MULTI_PC_V3(  {'ALPHA': 0.4, 'BETA': 0.4, 'TYPE_OF_VAD' : 'rVAD', 'WHERE_TO_HIDE': 'VOICED', 'FREQ_L': 1500, 'FREQ_H': 2500, 'FRAME_LENGTH': 10, 'HOP_DURATION_MS' : 10, 'LEVELS' : 4, 'HANKEL_ROWS' : 2}, logger),
-
-        #     # DIFFERENTIAL_SVD_XUE_MULTI(                   {'ALPHA': 0.4, 'BETA': 0.4, 'TYPE_OF_VAD' : 'rVAD', 'WHERE_TO_HIDE': 'VOICED', 'FREQ_L': 1500, 'FREQ_H': 2500, 'FRAME_LENGTH': 40, 'HOP_DURATION_MS' : 40, 'LEVELS' : 1, 'HANKEL_ROWS' : 2}, logger),
-        # ]
-
         methods_config = [{"name": method.__class__.__name__, "params": method.method_arguments} for method in methods]
         carrier_config = [carrier.to_metadata() for carrier in carriers]
         secrets_config = []
@@ -330,7 +272,7 @@ def run_and_save_test():
                         
                         logger.info(f"Running test for method: {method.name}, carrier: {carrier.name}")
                         
-                        method_directories = tools.prepare_method_directory(current_test_directory, method.name)
+                        method_directories = tools.prepare_method_directory(current_test_directory, method.name, ONLY_EMBED)
                         
                         method.set_method_directories(method_directories)
                         method.set_carrier(carrier)
@@ -342,7 +284,7 @@ def run_and_save_test():
                     try:
                         
                         try:
-                            secret = Secret({'type' : 'MAX_CAP', 'size' : method.get_capacity(), 'save_directory' : method_directories['Secrets']}, logger=logger)
+                            secret = Secret({'type' : 'MAX_CAP', 'size' : method.get_capacity(), 'save_directory' : method_directories['Secrets'], 'only_embed': ONLY_EMBED}, logger=logger)
                         except Exception as e:
                             logger.error(f"Error creating secret for method: {method.name}, carrier: {carrier.name}. Error: {e}")
                             continue
@@ -350,45 +292,53 @@ def run_and_save_test():
                         method.set_secret(secret)
 
                         stegobject = method.embedding()
-                        
-                        secrets_config.append(secret.to_metadata())
-                        
-                        test_name = method.name + '_' + method.secret.name + '_' + carrier.name
-                                                
-                        tools.save_audio_file(method_directories['Stegobjects'], {'name' : test_name + '.wav', 'content' : stegobject, 'fs' : carrier.fs})
-                        
-                        attacks.perfome_attacks(method_directories['Stegobjects'], test_name, test_to_perform)
-                        
-                        stegobjects_paths, filenames = tools.find_files_with_string_in_name(method_directories['Stegobjects'], test_name, recursive=False)
-                        
-                        for stegobject_path, filename in zip(stegobjects_paths, filenames):
-                            try:
-                                loaded_stegobject = tools.load_audio_file(stegobject_path)
-                                
-                                extracted_data = method.extraction(loaded_stegobject)
-                                
-                                tools.save_extracted_secret(extracted_data, method_directories, filename)
 
-                                analysis.analyze(method, carrier, secret, loaded_stegobject, extracted_data)
-                            except Exception as e:
-                                
-                                logger.error(f"Error during extraction/analysis for {test_name}, file: {filename}")
-                                logger.error(f"Error details: {e}")
-                                logger.error(traceback.format_exc())
-                                continue
+                        if not ONLY_EMBED:
                         
-                        performed_tests.append({
-                            "method": {
-                                "name": method.__class__.__name__,
-                                "params": method.method_arguments
-                            },
-                            "carrier": carrier.name,
-                            "secret": {
-                                "seed" : secret.seed,
-                                "type": secret.type
-                            },
-                            "test_name": test_name
-                        })
+                            secrets_config.append(secret.to_metadata())
+                            
+                            test_name = method.name + '_' + method.secret.name + '_' + carrier.name
+                                                    
+                            tools.save_audio_file(method_directories['Stegobjects'], {'name' : test_name + '.wav', 'content' : stegobject, 'fs' : carrier.fs})
+                            
+                            attacks.perfome_attacks(method_directories['Stegobjects'], test_name, test_to_perform)
+                            
+                            stegobjects_paths, filenames = tools.find_files_with_string_in_name(method_directories['Stegobjects'], test_name, recursive=False)
+                            
+                            for stegobject_path, filename in zip(stegobjects_paths, filenames):
+                                try:
+                                    loaded_stegobject = tools.load_audio_file(stegobject_path)
+                                    
+                                    extracted_data = method.extraction(loaded_stegobject)
+                                    
+                                    tools.save_extracted_secret(extracted_data, method_directories, filename)
+
+                                    analysis.analyze(method, carrier, secret, loaded_stegobject, extracted_data)
+                                except Exception as e:
+                                    
+                                    logger.error(f"Error during extraction/analysis for {test_name}, file: {filename}")
+                                    logger.error(f"Error details: {e}")
+                                    logger.error(traceback.format_exc())
+                                    continue
+                            
+                            performed_tests.append({
+                                "method": {
+                                    "name": method.__class__.__name__,
+                                    "params": method.method_arguments
+                                },
+                                "carrier": carrier.name,
+                                "secret": {
+                                    "seed" : secret.seed,
+                                    "type": secret.type
+                                },
+                                "test_name": test_name
+                            })
+                        else:
+                            logger.info(f"Embedding only mode enabled; skipping extraction and analysis for method: {method.name}, carrier: {carrier.name}")
+                            tools.save_audio_file(method_directories['Stegobjects'], {'name' : carrier.name + '.wav', 'content' : stegobject, 'fs' : carrier.fs})
+
+
+
                     except Exception as e:
                         logger.error(f"Critical error in test for method: {method.name}, carrier: {carrier.name}")
                         logger.error(f"Error details: {e}")
@@ -399,23 +349,25 @@ def run_and_save_test():
             
         
         print(f"TEST ID: {test_id}")
-        analysis.save_methods_analysis_to_csv(current_test_directory)
-        analysis.print_results()
-        analysis.analyze_by_multiple_groups(["NAME", "TEST", "VAD", 'LEVELS', 'ALPHA', 'BETA', 'CAP. [bps]', 'ADAPTIVE'],     filters = None) #, 'BER [%]': lambda x: float(x) < 10
-        analysis.save_grouped_to_csv(["NAME", "TEST", "VAD", 'LEVELS', 'ALPHA', 'BETA', 'CAP. [bps]', 'ADAPTIVE'], current_test_directory)
 
-        config = {
-            "methods": methods_config,
-            "carriers": carrier_config,
-            "secrets": secrets_config,
-            "attacks": test_to_perform,
-            "performed_tests": performed_tests
-        }
+        if not ONLY_EMBED:
+            analysis.save_methods_analysis_to_csv(current_test_directory)
+            analysis.print_results()
+            analysis.analyze_by_multiple_groups(["NAME", "TEST", "VAD", 'LEVELS', 'ALPHA', 'BETA', 'CAP. [bps]', 'ADAPTIVE', 'REDUCED'],     filters = None) #, 'BER [%]': lambda x: float(x) < 10
+            analysis.save_grouped_to_csv(["NAME", "TEST", "VAD", 'LEVELS', 'ALPHA', 'BETA', 'CAP. [bps]', 'ADAPTIVE', 'REDUCED'], current_test_directory)
 
-        current_time = datetime.now().strftime("%Y%m%d_%H%M%S")
-        filename = f'test_config_{current_time}.json'
-        with open(os.path.join(current_test_directory, filename), "w") as f:
-            json.dump(config, f, indent=4)
+            config = {
+                "methods": methods_config,
+                "carriers": carrier_config,
+                "secrets": secrets_config,
+                "attacks": test_to_perform,
+                "performed_tests": performed_tests
+            }
+
+            current_time = datetime.now().strftime("%Y%m%d_%H%M%S")
+            filename = f'test_config_{current_time}.json'
+            with open(os.path.join(current_test_directory, filename), "w") as f:
+                json.dump(config, f, indent=4)
 
     except Exception as e:
         print(f"An error occurred during the test: {e}")

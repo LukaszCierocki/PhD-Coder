@@ -46,8 +46,8 @@ class DIFFERENTIAL_SVD_XUE(DIFFERENTIAL_SVD_XUE_BASED_METHOD):
         self.logger.debug(f"Even DCT coefficients: \n{evn_dct_coeffs}")
         self.logger.debug(f"Odd DCT coefficients: \n{odd_dct_coeffs}")
 
-        evn_matrix, evn_shape = self.vector_to_rectangular(evn_dct_coeffs)
-        odd_matrix, odd_shape = self.vector_to_rectangular(odd_dct_coeffs)
+        evn_matrix, padded_evn, evn_shape = self.vector_to_rectangular_with_padding(evn_dct_coeffs)
+        odd_matrix, padded_odd, odd_shape = self.vector_to_rectangular_with_padding(odd_dct_coeffs)
 
         U_evn, s_evn, Vh_evn = svd(evn_matrix, full_matrices=False)
         U_odd, s_odd, Vh_odd = svd(odd_matrix, full_matrices=False)
@@ -107,26 +107,21 @@ class DIFFERENTIAL_SVD_XUE(DIFFERENTIAL_SVD_XUE_BASED_METHOD):
         s_evn[s_evn_max_idx] = ro_dash_11
         s_odd[s_odd_max_idx] = ro_dash_21
 
-        inverse_svd_evn = U_evn @ np.diag(s_evn) @ Vh_evn
-        inverse_svd_odd = U_odd @ np.diag(s_odd) @ Vh_odd
+        inv_evn = (U_evn @ np.diag(s_evn) @ Vh_evn).flatten()[:len(evn_dct_coeffs)]
+        inv_odd = (U_odd @ np.diag(s_odd) @ Vh_odd).flatten()[:len(odd_dct_coeffs)]
 
-        inverse_svd_evn = inverse_svd_evn.flatten()
-        inverse_svd_odd = inverse_svd_odd.flatten()
+        self.logger.debug(f"Inverse even coefficients: \n{inv_evn}")
+        self.logger.debug(f"Inverse odd coefficients: \n{inv_odd}")
 
-        coefficents = []
+        inv_evn = inv_evn[:len(evn_dct_coeffs)]
+        inv_odd = inv_odd[:len(odd_dct_coeffs)]
 
-        evn_len = len(inverse_svd_evn)
-        odd_len = len(inverse_svd_odd)
+        # Scalanie
+        merged_coeffs = np.empty(len(inv_evn) + len(inv_odd), dtype=evn_dct_coeffs.dtype)
+        merged_coeffs[::2] = inv_evn
+        merged_coeffs[1::2] = inv_odd
 
-        assert len(evn_dct_coeffs) == len(odd_dct_coeffs), "Błąd: Nieparzysta liczba współczynników!"
-
-        for i in range(evn_len + odd_len):  # łącznie 40 elementów
-            if i % 2 == 0:
-                coefficents.append(inverse_svd_evn[i // 2])
-            else:
-                coefficents.append(inverse_svd_odd[i // 2])
-
-        coefficents = np.array(coefficents)
+        coefficents = np.array(merged_coeffs)
         frame_after_dct[idx_low:idx_high] = coefficents
 
         inverse_dct_frame = idct(frame_after_dct, norm='ortho')

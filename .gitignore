@@ -14,6 +14,7 @@ ENV/
 # Results and temp
 Results/
 Archive/
+Carriers/
 *.log
 *.tmp
 *.bak

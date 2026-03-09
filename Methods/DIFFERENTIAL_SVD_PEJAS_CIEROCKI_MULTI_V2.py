@@ -10,7 +10,7 @@ class DIFFERENTIAL_SVD_PEJAS_CIEROCKI_MULTI_V2(MULTI_LEVEL_METHOD):
 
         super().__init__(method_arguments, logger)
 
-        self.name = f"DIFFERENTIAL_SVD_PEJAS_CIEROCKI_MULTI_V2_L_{self.levels}_A_{self.alpha}_B_{self.beta}_{self.where_to_hide}_FREQ_L_{self.FREQ_L}_FREQ_H_{self.FREQ_H}_FL_{self.frame_length}"
+        self.name = f"DIFFERENTIAL_SVD_PEJAS_CIEROCKI_MULTI_V2_L_{self.levels}_A_{self.alpha}_B_{self.beta}_{self.where_to_hide}_FREQ_L_{self.FREQ_L}_FREQ_H_{self.FREQ_H}_FL_{self.frame_length}_ADAPTIVE_{self.adaptive}_REDUCED_{self.reduced}"
 
         self.domain = 'FREQUENCY'
         self.style = 'SEQUENTIAL'
@@ -56,37 +56,64 @@ class DIFFERENTIAL_SVD_PEJAS_CIEROCKI_MULTI_V2(MULTI_LEVEL_METHOD):
                 self.s_even.append(ro_11)
                 self.s_odd.append(ro_21)
 
-                if(self.adaptive):
-                    T_bu_1 = self.alpha + 2.0*(ro_21 - ro_11)/(ro_21 + ro_11)
-                    T_bu_2 = self.beta + 2.0*(ro_11 - ro_21)/(ro_21 + ro_11)
+                if self.reduced == False:
+
+                    if self.adaptive:
+                        T_bu_1 = self.alpha + 2.0*(ro_21 - ro_11)/(ro_21 + ro_11)
+                        T_bu_2 = self.beta + 2.0*(ro_11 - ro_21)/(ro_21 + ro_11)
+                    else:
+                        T_bu_1 = self.alpha + 2.0*(ro_21 - ro_11)/(ro_21 + ro_11)
+                        T_bu_2 = self.beta + 2.0*(ro_11 - ro_21)/(ro_21 + ro_11)
+
+                    self.alphas.append(T_bu_1)
+                    self.betas.append(T_bu_2)
+
+                    ro_dash_11 = 0
+                    ro_dash_21 = 0
+
+                    davg = (ro_11 + ro_21) / 2.0
+
+                    if bit == 0:
+
+                        if ro_11 - ro_21 >= T_bu_1 * davg:
+                            ro_dash_11 = ro_11
+                            ro_dash_21 = ro_21
+                        else:
+                            ro_dash_11 = ro_11 + T_bu_1 * davg
+                            ro_dash_21 = ro_21
+
+                    elif bit == 1:
+                        if (ro_21 - ro_11) >= T_bu_2 * davg:
+                            ro_dash_11 = ro_11
+                            ro_dash_21 = ro_21
+                        else:
+                            ro_dash_11 = ro_11
+                            ro_dash_21 = ro_11 + T_bu_2 * davg
+
                 else:
-                    T_bu_1 = self.alpha
-                    T_bu_2 = self.beta
 
-                self.alphas.append(T_bu_1)
-                self.betas.append(T_bu_2)
+                    self.alphas.append(self.alpha)
+                    self.betas.append(self.beta)
 
-                ro_dash_11 = 0
-                ro_dash_21 = 0
+                    ro_dash_11 = 0
+                    ro_dash_21 = 0
 
-                davg = (ro_11 + ro_21) / 2.0
+                    davg = (ro_11 + ro_21) / 2.0
 
-                if bit == 0:
-
-                    if ro_11 - ro_21 >= T_bu_1*davg:
-                        ro_dash_11 = ro_11
-                        ro_dash_21 = ro_21
-                    else:
-                        ro_dash_11 = ro_21 + T_bu_1*davg
-                        ro_dash_21 = ro_21
-
-                elif bit == 1:
-                    if (ro_21 - ro_11) >= T_bu_2*davg:
-                        ro_dash_11 = ro_11
-                        ro_dash_21 = ro_21
-                    else:
-                        ro_dash_11 = ro_11
-                        ro_dash_21 = ro_21 + T_bu_2*davg
+                    if bit == 0:
+                        if ro_11 - ro_21 >= self.alpha * davg / 2:
+                            ro_dash_11 = ro_11
+                            ro_dash_21 = ro_21
+                        else:
+                            ro_dash_11 = ro_21 + self.alpha * davg
+                            ro_dash_21 = ro_21
+                    elif bit == 1:
+                        if (ro_21 - ro_11) >= self.beta * davg/2:
+                            ro_dash_11 = ro_11
+                            ro_dash_21 = ro_21
+                        else:
+                            ro_dash_11 = ro_11
+                            ro_dash_21 = ro_11 + self.beta * davg
 
                 s_evn[s_evn_max_idx] = ro_dash_11
                 s_odd[s_odd_max_idx] = ro_dash_21
@@ -98,26 +125,21 @@ class DIFFERENTIAL_SVD_PEJAS_CIEROCKI_MULTI_V2(MULTI_LEVEL_METHOD):
             new_levels_odd.append((U_odd, s_odd, VT_odd))
             i += 1
 
-        evn_dct_coeffs = self.MultiLevelSVDProcessor.reconstruct_from_levels(new_levels_evn)
-        odd_dct_coeffs = self.MultiLevelSVDProcessor.reconstruct_from_levels(new_levels_odd)
+        rec_evn = self.MultiLevelSVDProcessor.reconstruct_from_levels(new_levels_evn)
+        rec_odd = self.MultiLevelSVDProcessor.reconstruct_from_levels(new_levels_odd)
 
-        coefficents = []
+        coeffs = []
+        # Optymalizacja pętli for coeffs (list comprehension jest szybsze)
+        # Zakładamy, że filtered_dct_coeffs ma długość len(rec_evn) + len(rec_odd)
+        total_len = len(rec_evn) + len(rec_odd)
+        for k in range(total_len):
+            coeffs.append(rec_evn[k // 2] if k % 2 == 0 else rec_odd[k // 2])
+        coeffs = np.array(coeffs)
 
-        evn_len = len(evn_dct_coeffs)
-        odd_len = len(odd_dct_coeffs)
+        full_dct = frame_dct.copy()
+        full_dct[idx_low:idx_high] = coeffs
 
-        assert len(evn_dct_coeffs) == len(odd_dct_coeffs), "Błąd: Nieparzysta liczba współczynników!"
-
-        for i in range(evn_len + odd_len):
-            if i % 2 == 0:
-                coefficents.append(evn_dct_coeffs[i // 2])
-            else:
-                coefficents.append(odd_dct_coeffs[i // 2])
-
-        coefficents = np.array(coefficents)
-        frame_dct[idx_low:idx_high] = coefficents
-
-        embedded_frame = idct(frame_dct, norm='ortho')
+        embedded_frame = idct(full_dct, norm='ortho')
 
         return embedded_frame
 

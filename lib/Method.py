@@ -535,7 +535,7 @@ class DIFFERENTIAL_SVD_XUE_BASED_METHOD(Method):
         self.frame_length = method_arguments['FRAME_LENGTH']
 
         self.domain = 'FREQUENCY'
-        self.style = 'SEQUENTIAL'
+        self.style = 'SELECTIVE'
 
         self.s_even = []
         self.s_odd = []
@@ -549,6 +549,8 @@ class DIFFERENTIAL_SVD_XUE_BASED_METHOD(Method):
         self.unvoiced_frames = []
         self.voiced_indices = []
         self.unvoiced_indices = []
+
+        self.reduced = method_arguments['REDUCED']
 
         self.frames_to_use = []
         self.frames_voice_status = []
@@ -569,6 +571,8 @@ class DIFFERENTIAL_SVD_XUE_BASED_METHOD(Method):
 
         self.FrameProcessor = FrameProcessor(logger)
         self.MDCTProcessor = MDCTProcessor()
+        self.MultiLevelSVDProcessor = MultiLevelSVDProcessor(method_arguments, logger)
+
 
     def prepare_secret_with_sync(self):
         """

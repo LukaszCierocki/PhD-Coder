@@ -498,6 +498,7 @@ class Analysis:
             'FRAMES' : method.where_to_hide,
             'VAD' : method.type_of_vad,
             'ADAPTIVE' : method.adaptive,
+            'REDUCED'  : method.reduced,
             'ALPHA' : method.alpha,
             'BETA' : method.beta,
             'CARRIER' : carrier.name,
@@ -599,7 +600,7 @@ class Analysis:
     def save_methods_analysis_to_csv(self, filepath):
 
         fieldnames = [
-            'NAME', 'TEST NAME', 'LEVELS', 'VAD', 'ADAPTIVE', 'ALPHA', 'BETA', 'FRAMES', 'CARRIER', 'TEST', 'LEVELS', 'SECRET' , 'SEC. SIZE [b]' , 'MSE', 'PESQ', 'STOI', 'PSNR [dB]','BER [%]' ,'CAP. [%]', 'CAP. [bps]', 'EMB TIME [s]', 'EXT TIME [s]', 'DOMAIN' ,'STYLE'
+            'NAME', 'TEST NAME', 'LEVELS', 'VAD', 'ADAPTIVE', 'REDUCED' , 'ALPHA', 'BETA', 'FRAMES', 'CARRIER', 'TEST', 'LEVELS', 'SECRET' , 'SEC. SIZE [b]' , 'MSE', 'PESQ', 'STOI', 'PSNR [dB]','BER [%]' ,'CAP. [%]', 'CAP. [bps]', 'EMB TIME [s]', 'EXT TIME [s]', 'DOMAIN' ,'STYLE'
         ]
 
         current_time = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -757,7 +758,7 @@ class Analysis:
             
     def print_results(self):
 
-        columns_list = ['NAME', 'CARRIER', 'LEVELS', 'VAD', 'ADAPTIVE', 'ALPHA', 'BETA' ,'FRAMES', 'TEST', 'SECRET', 'SEC. SIZE [b]', 'MSE', 'PSNR [dB]', 'PESQ', 'STOI','BER [%]', 'CAP. [%]', 'CAP. [bps]','EMB TIME [s]', 'EXT TIME [s]']
+        columns_list = ['NAME', 'CARRIER', 'LEVELS', 'VAD', 'ADAPTIVE', 'REDUCED', 'ALPHA', 'BETA' ,'FRAMES', 'TEST', 'SECRET', 'SEC. SIZE [b]', 'MSE', 'PSNR [dB]', 'PESQ', 'STOI','BER [%]', 'CAP. [%]', 'CAP. [bps]','EMB TIME [s]', 'EXT TIME [s]']
                 
         self.printTable(self.methods_analysis, columns_list)
 

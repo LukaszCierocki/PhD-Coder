@@ -165,6 +165,8 @@ class Tools:
             carriers = []
             for file in files:
                 carriers.append(Carrier({'name': file['filename'], 'path' : file['path']}))
+                self.logger.debug(f"Loaded carrier: {file['filename']} from path: {file['path']}")
+                self.logger.info(f"Loaded carrier: {file['filename']}")
             return carriers
         except Exception as e:
             self.logger.exception("Error loading carriers")
@@ -215,7 +217,7 @@ class Tools:
 
         return secrets
     
-    def prepare_method_directory(self, base_dir: str, method_name: str) -> dict:
+    def prepare_method_directory(self, base_dir: str, method_name: str, only_embed: bool) -> dict:
         try:
             method_dir = os.path.join(base_dir, method_name)
             subdirs = {
@@ -227,7 +229,11 @@ class Tools:
                 'Base': method_dir
             }
             for path in subdirs.values():
-                os.makedirs(path, exist_ok=True)
+
+                if only_embed and path.endswith('Stegobjects'):
+                    os.makedirs(path, exist_ok=True)
+                elif not only_embed:
+                    os.makedirs(path, exist_ok=True)
             return subdirs
         except Exception as e:
             self.logger.exception(f"Error preparing method directory for {method_name}")

@@ -8,10 +8,11 @@ pesq
 pystoi
 sympy
 PyWavelets
-webrtcvad
 setuptools
 soundfile
 pandas
 tabulate
 colorama
 logging
+joblib
+matplotlib
