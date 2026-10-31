@@ -13,6 +13,7 @@ import os
 import shutil
 import subprocess
 import tempfile
+import warnings
 from math import gcd
 
 import numpy
@@ -23,7 +24,10 @@ from lib.Carrier import read_audio_as_int16
 from lib.Method import ensure_logger, to_int16
 
 try:  # audioop was removed from the standard library in Python 3.13 (pip install audioop-lts)
-    import audioop
+    with warnings.catch_warnings():
+        # Python 3.11-3.12: stdlib audioop emits a DeprecationWarning on import
+        warnings.simplefilter('ignore', DeprecationWarning)
+        import audioop
 except ImportError:  # pragma: no cover - depends on the environment
     audioop = None
 
