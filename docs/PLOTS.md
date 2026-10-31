@@ -9,6 +9,7 @@ nominal capacity `CAP. [bps]`, y = the mean over carriers.
 | `emb_time_s_vs_capacity.png` | Average Embedding Time vs Capacity | `EMB TIME [s]` |
 | `ext_time_s_vs_capacity.png` | Average Extraction Time vs Capacity | `EXT TIME [s]` |
 | `mse_vs_capacity.png` | Mean squared error (MSE) vs Capacity | `MSE` |
+| `rmse_lsb_vs_capacity.png` | Root mean squared error (RMSE) vs Capacity | `RMSE [LSB]` (for older CSV files computed from `MSE`) |
 | `pesq_vs_capacity.png` | PESQ vs Capacity | `PESQ` |
 | `psnr_db_…`, `snr_db_…`, `segsnr_db_…`, `stoi_…` | PSNR / SNR / SegSNR / STOI vs Capacity | |
 | `Attacks/ber_<attack>_vs_capacity.png` | BER vs Capacity (<attack>) | `BER [%]`, one chart per attack |

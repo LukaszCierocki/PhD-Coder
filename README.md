@@ -3,7 +3,7 @@
 PhD Coder is a toolkit for experimenting with, testing and comparing steganographic
 methods for speech signals. One run embeds a pseudo-random secret into every carrier
 with every configured method, optionally attacks the stegobjects, extracts the secret
-again and reports transparency (MSE, PSNR, SNR, SegSNR, PESQ, STOI), robustness (BER),
+again and reports transparency (MSE, RMSE, PSNR, SNR, SegSNR, PESQ, STOI), robustness (BER),
 capacity and speed. It can also run statistical and machine-learning steganalysis on the
 stegobjects and draw the "*metric* vs Capacity" charts used in the thesis.
 
@@ -143,11 +143,18 @@ runs in that folder are moved to `Archive/` when a new run starts.
 
 Main CSV columns: `NAME`, `CARRIER`, `TEST` (`NONE` = clean stegobject, otherwise the
 attack), `SEC. SIZE [b]`, `EXTRACTED [b]`, `BIT ERRORS`, `BER [%]` (missing bits count as
-errors), `MSE`, `PSNR [dB]` (`10 log10(32767² / MSE)`, full scale of 16-bit PCM),
+errors), `MSE` (in LSB²), `RMSE [LSB]` (`√MSE`, typical sample error on the int16 scale:
+MSE 12 000 ≈ ±110 of ±32 768), `PSNR [dB]` (`10 log10(32767² / MSE)`, full scale of 16-bit PCM),
 `SNR [dB]`, `SEGSNR [dB]` (20 ms segments, clamped to [-10, 35] dB), `PESQ` (wide-band at 16 kHz, narrow-band at 8 kHz),
 `STOI` (extended), `CAP. [bps]` (nominal), `EFF. CAP. [bps]` (embedded bits / duration),
 `EMB TIME [s]`, `EXT TIME [s]` (embedding / extraction loop with transforms, without the
 VAD), `CLIPPED`, `BAND [Hz]` (band actually used), `BAND ENERGY [dB]`, `LEGACY`.
+
+MSE and RMSE grow with the recording level (measured for PC [v2] and Xue (orig.): the
+same carriers 1.5× louder give a 2.25× larger MSE with the same SNR and PESQ), so compare
+them only on the same corpus. PSNR with the full-scale peak is `SNR + 20 log10(32767 / RMS of the
+speech)`, i.e. SNR + ≈22.5 dB for CMU ARCTIC. SNR / SegSNR and PESQ do not depend on
+the level.
 
 Attacks follow the protocol of the PC paper (`lib.Attacks.DEFAULT_ATTACK_PARAMS`): AWGN
 30 dB, high-pass 500 Hz, low-pass 6.5 kHz, re-quantisation to 8 bits, MP3 64/128/192

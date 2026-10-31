@@ -16,9 +16,9 @@ segments with a varying f0 separated by quiet noise) that rVAD classifies as voi
 | `test_rules.py` | Algorithm 4 of the PC paper equals Algorithm 3 with the Lemma 1 factors; corrected Lemma 1 margins hold and are tight; counter-example to the submitted Lemma; non-negativity limits; Xue Eq. (22) symmetric vs as printed; every PC class uses Algorithm 4 (and its LEGACY rule otherwise); PC v3 score of Algorithm 2 |
 | `test_band.py` | even number of band coefficients; Wen's 2N_k = 116 for 100 Hz - 3 kHz; band in key / report; receiver with another band, `LEVELS` or `LEGACY` is rejected; DC and empty-band warnings; Nyquist at 8 kHz; `WHERE_TO_HIDE='ALL'` |
 | `test_validation.py` | invalid parameters and misuse raise errors (see docs/METHODS.md) |
-| `test_analysis.py` | MSE without int16 overflow, SNR/PSNR/SegSNR values, BER with missing/extra bits, attack labels from file names |
+| `test_analysis.py` | MSE without int16 overflow, RMSE = √MSE, SNR/PSNR/SegSNR values, BER with missing/extra bits, attack labels from file names |
 | `test_attacks.py` | NOISE attack reaches the target SNR (±0.5 dB) and is reproducible with a seed; other attacks keep length and rate; G.711; a failing attack (no ffmpeg) does not stop the others |
-| `test_plots.py` | charts and CSV tables written; aggregation per test; colours follow the method |
+| `test_plots.py` | charts and CSV tables written; aggregation per test; colours follow the method; RMSE chart also from CSV files without the column |
 | `test_steganalysis.py` | BH-FDR values, permutation test, q ≥ p, feature dimensions, grouped folds never split a carrier, CV metrics on separable data, ML pipeline + prediction, pair reconstruction from a result folder |
 | `test_coder.py` | full runs of `coder.py` (embedding, NOISE attack, extraction, CSV, charts, keys), `--config` replay gives identical results, replay of an old-format config, `ONLY_EMBED` + `--steganalysis-from`, `--plots-from` |
 

@@ -23,6 +23,15 @@ def test_mse_aligns_lengths(analysis):
     assert analysis.calculate_mean_squared_error(np.ones(10, dtype=np.int16), np.zeros(4, dtype=np.int16)) == 1.0
 
 
+def test_rmse_is_the_root_of_the_mse(analysis):
+    a = np.zeros(4, dtype=np.int16)
+    b = np.array([110, -110, 110, -110], dtype=np.int16)
+    mse = analysis.calculate_mean_squared_error(a, b)
+    assert mse == 12100.0
+    assert analysis.root_mean_squared_error(mse) == 110.0
+    assert math.isnan(analysis.root_mean_squared_error(float('nan')))
+
+
 def test_snr_and_psnr(analysis):
     x = np.array([1000, -1000, 1000, -1000], dtype=np.int16)
     y = x + np.array([10, -10, 10, -10], dtype=np.int16)

@@ -55,6 +55,7 @@ CHARTS = {
     'EMB TIME [s]': ('Average Embedding Time vs Capacity', 'Embedding Time [s]'),
     'EXT TIME [s]': ('Average Extraction Time vs Capacity', 'Extraction Time [s]'),
     'MSE': ('Mean squared error (MSE) vs Capacity', 'Mean squared error (MSE)'),
+    'RMSE [LSB]': ('Root mean squared error (RMSE) vs Capacity', 'RMSE [LSB]'),
     'PESQ': ('PESQ vs Capacity', 'PESQ'),
     'PSNR [dB]': ('Peak signal-to-noise ratio (PSNR) vs Capacity', 'PSNR [dB]'),
     'SNR [dB]': ('Signal-to-noise ratio (SNR) vs Capacity', 'SNR [dB]'),
@@ -103,6 +104,10 @@ def load_results(paths):
     for col in NUMERIC_COLUMNS:
         if col in df.columns:
             df[col] = pd.to_numeric(df[col], errors='coerce').replace([np.inf, -np.inf], np.nan)
+    if 'MSE' in df.columns:
+        # files written before the RMSE column existed: RMSE = sqrt(MSE) per stegobject
+        rmse = np.sqrt(df['MSE'].where(df['MSE'] >= 0))
+        df['RMSE [LSB]'] = df['RMSE [LSB]'].fillna(rmse) if 'RMSE [LSB]' in df.columns else rmse
     if 'TEST' in df.columns:
         df['TEST'] = df['TEST'].fillna('NONE')
     return df

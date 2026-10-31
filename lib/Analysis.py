@@ -22,7 +22,7 @@ from lib.Method import ensure_logger
 init(autoreset=True)
 
 # Numeric result columns (used for CSV export, grouping and plots).
-NUMERIC_COLUMNS = ['MSE', 'PSNR [dB]', 'SNR [dB]', 'SEGSNR [dB]', 'PESQ', 'STOI', 'BER [%]',
+NUMERIC_COLUMNS = ['MSE', 'RMSE [LSB]', 'PSNR [dB]', 'SNR [dB]', 'SEGSNR [dB]', 'PESQ', 'STOI', 'BER [%]',
                    'CAP. [%]', 'CAP. [bps]', 'EFF. CAP. [bps]', 'EMB TIME [s]', 'EXT TIME [s]',
                    'BAND ENERGY [dB]']
 
@@ -30,7 +30,7 @@ NUMERIC_COLUMNS = ['MSE', 'PSNR [dB]', 'SNR [dB]', 'SEGSNR [dB]', 'PESQ', 'STOI'
 PSNR_PEAK = 32767.0
 
 BEST_TYPE = {
-    'MSE': 'min', 'PSNR [dB]': 'max', 'SNR [dB]': 'max', 'SEGSNR [dB]': 'max', 'PESQ': 'max',
+    'MSE': 'min', 'RMSE [LSB]': 'min', 'PSNR [dB]': 'max', 'SNR [dB]': 'max', 'SEGSNR [dB]': 'max', 'PESQ': 'max',
     'STOI': 'max', 'BER [%]': 'min', 'CAP. [%]': 'max', 'CAP. [bps]': 'max', 'EFF. CAP. [bps]': 'max',
     'EMB TIME [s]': 'min', 'EXT TIME [s]': 'min', 'BAND ENERGY [dB]': 'max',
 }
@@ -38,7 +38,7 @@ BEST_TYPE = {
 CSV_FIELDNAMES = [
     'NAME', 'TEST NAME', 'METHOD CLASS', 'LEGACY', 'LEVELS', 'VAD', 'ADAPTIVE', 'REDUCED', 'ALPHA', 'BETA',
     'FRAMES', 'FREQ_L', 'FREQ_H', 'BAND [Hz]', 'BAND ENERGY [dB]', 'FRAME [ms]', 'HOP [ms]', 'CARRIER', 'TEST', 'STEGOBJECT', 'SECRET', 'SEC. SIZE [b]',
-    'EXTRACTED [b]', 'BIT ERRORS', 'MSE', 'PSNR [dB]', 'SNR [dB]', 'SEGSNR [dB]', 'PESQ', 'STOI', 'BER [%]',
+    'EXTRACTED [b]', 'BIT ERRORS', 'MSE', 'RMSE [LSB]', 'PSNR [dB]', 'SNR [dB]', 'SEGSNR [dB]', 'PESQ', 'STOI', 'BER [%]',
     'CAP. [%]', 'CAP. [bps]', 'EFF. CAP. [bps]', 'EMB TIME [s]', 'EXT TIME [s]', 'CLIPPED', 'DOMAIN', 'STYLE'
 ]
 
@@ -531,6 +531,7 @@ class Analysis:
         test_name = test_label or test_label_from_filename(stegobject_name)
 
         bit_errors, ber = self.count_bit_errors(secret, extracted_data)
+        mse = self.calculate_mean_squared_error(carrier.data_signed_int16, stegobject)
 
         method_analysis = {
             'NAME': method.normal_name,
@@ -559,7 +560,8 @@ class Analysis:
             'SEC. SIZE [b]': len(secret.binary_data),
             'EXTRACTED [b]': len(extracted_data) if extracted_data is not None else 0,
             'BIT ERRORS': bit_errors,
-            'MSE': round(self.calculate_mean_squared_error(carrier.data_signed_int16, stegobject), 3),
+            'MSE': round(mse, 3),
+            'RMSE [LSB]': round(self.root_mean_squared_error(mse), 3),
             'PSNR [dB]': round(self.calculate_peak_signal_to_noise_ratio(carrier, stegobject), 3),
             'SNR [dB]': round(self.calculate_snr(carrier.data_signed_int16, stegobject), 3),
             'SEGSNR [dB]': round(self.calculate_segmented_snr(carrier.data_signed_int16, stegobject,
@@ -835,7 +837,7 @@ class Analysis:
     def print_results(self):
 
         columns_list = ['NAME', 'CARRIER', 'LEVELS', 'VAD', 'ADAPTIVE', 'REDUCED', 'ALPHA', 'BETA', 'FRAMES', 'TEST',
-                        'SECRET', 'SEC. SIZE [b]', 'MSE', 'PSNR [dB]', 'SNR [dB]', 'PESQ', 'STOI', 'BER [%]',
+                        'SECRET', 'SEC. SIZE [b]', 'MSE', 'RMSE [LSB]', 'PSNR [dB]', 'SNR [dB]', 'PESQ', 'STOI', 'BER [%]',
                         'CAP. [%]', 'CAP. [bps]', 'EFF. CAP. [bps]', 'EMB TIME [s]', 'EXT TIME [s]']
 
         self.printTable(self.methods_analysis, columns_list)
@@ -850,6 +852,17 @@ class Analysis:
         if len(x) == 0:
             return float('nan')
         return float(np.mean((x - y) ** 2))
+
+    @staticmethod
+    def root_mean_squared_error(mse):
+        """
+        RMSE = sqrt(MSE): the typical size of the sample error in LSB, on the
+        same scale as the int16 samples (MSE is in LSB^2: MSE 12 000 is an error
+        of about +/-110 out of +/-32 768). Like MSE it grows with the recording
+        level - SNR / SegSNR do not.
+        """
+        mse = float(mse)
+        return float(np.sqrt(mse)) if np.isfinite(mse) and mse >= 0 else float('nan')
 
     def calculate_perceptual_evaluation_of_speech_quality(self, fs ,carrier, stegobject):
         try:

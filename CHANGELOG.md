@@ -1,7 +1,10 @@
 # Changelog
 
-## 2026-10-31 (3) - steganalysis: Chi² tests; preset COMPARISON
+## 2026-10-31 (3) - steganalysis: Chi² tests; preset COMPARISON; RMSE
 
+* **`RMSE [LSB]`** column (`√MSE`) in the CSV files, the console table and the charts
+  (`rmse_lsb_vs_capacity.png`; for older CSV files it is computed from `MSE`). MSE is in
+  LSB²: MSE 12 000 is an error of about ±110 on the ±32 768 scale.
 * **Preset `COMPARISON`**: all thesis methods and both `(orig.)` baselines at 50 bps,
   every attack, steganalysis - the data of the method ranking in one run
   (`python coder.py --test COMPARISON --seed 7 --perm-b 100`).

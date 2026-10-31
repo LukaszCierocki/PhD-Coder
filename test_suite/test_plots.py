@@ -63,3 +63,16 @@ def test_variants_share_the_colour_of_their_method():
     assert order == ['PC [v1]', 'PC [v1] (legacy)', 'Xue et. al.', 'Xue et. al. (orig.)']
     assert styles['Xue et. al. (orig.)']['color'] == styles['Xue et. al.']['color']
     assert styles['Xue et. al. (orig.)']['linestyle'] == '--' and styles['PC [v1] (legacy)']['linestyle'] == ':'
+
+
+def test_rmse_chart_also_for_files_without_the_column(tmp_path):
+    old = results_frame()                      # written before the RMSE column existed
+    old.to_csv(tmp_path / 'test_analysis_old.csv', index=False)
+    new = results_frame().assign(**{'RMSE [LSB]': 1.0})
+    new.to_csv(tmp_path / 'test_analysis_new.csv', index=False)
+    df = Plots.load_results([str(tmp_path / 'test_analysis_old.csv'), str(tmp_path / 'test_analysis_new.csv')])
+    from_old = df[df['SOURCE FILE'].str.endswith('old.csv')]
+    assert np.allclose(from_old['RMSE [LSB]'], np.sqrt(from_old['MSE']))
+    assert (df[df['SOURCE FILE'].str.endswith('new.csv')]['RMSE [LSB]'] == 1.0).all()  # stored values are kept
+    written = Plots.plot_capacity_charts(df, str(tmp_path / 'charts'), metrics=['RMSE [LSB]'], tests=[])
+    assert [os.path.basename(p) for p in written] == ['rmse_lsb_vs_capacity.png']
