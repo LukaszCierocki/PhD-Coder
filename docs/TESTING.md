@@ -19,8 +19,8 @@ segments with a varying f0 separated by quiet noise) that rVAD classifies as voi
 | `test_analysis.py` | MSE without int16 overflow, RMSE = √MSE, SNR/PSNR/SegSNR values, BER with missing/extra bits, attack labels from file names |
 | `test_attacks.py` | NOISE attack reaches the target SNR (±0.5 dB) and is reproducible with a seed; other attacks keep length and rate; G.711; a failing attack (no ffmpeg) does not stop the others |
 | `test_plots.py` | charts and CSV tables written; aggregation per test; colours follow the method; RMSE chart also from CSV files without the column |
-| `test_steganalysis.py` | BH-FDR values, permutation test, q ≥ p, feature dimensions, grouped folds never split a carrier, CV metrics on separable data, ML pipeline + prediction, pair reconstruction from a result folder |
-| `test_coder.py` | full runs of `coder.py` (embedding, NOISE attack, extraction, CSV, charts, keys), `--config` replay gives identical results, replay of an old-format config, `ONLY_EMBED` + `--steganalysis-from`, `--plots-from` |
+| `test_steganalysis.py` | BH-FDR values, permutation test, q ≥ p, Chi² = contingency-table test of homogeneity (sparse bins merged; one stego sample beyond the cover's peak is not a detection; real changes are), feature dimensions, grouped folds never split a carrier, CV metrics on separable data, ML pipeline + prediction, pair reconstruction from a result folder |
+| `test_coder.py` | full runs of `coder.py` (embedding, NOISE attack, extraction, CSV, charts, keys), `--config` replay gives identical results, replay of an old-format config, `ONLY_EMBED` + `--steganalysis-from`, `--plots-from`; the `COMPARISON` preset has every method once at 50 bps, all attacks and steganalysis |
 
 Expected BER bounds on the synthetic signal are listed in `METHOD_CASES`
 (`test_suite/conftest.py`): 0% for all methods except PC [v3] (Hankel re-projection,

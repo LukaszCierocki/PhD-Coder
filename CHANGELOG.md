@@ -85,7 +85,7 @@ band 1500-2500 Hz, α = β = 0.7, measured before and after the change.
 | Problem | Effect before | After |
 |---|---|---|
 | **MSE computed in int16** - `carrier - stego` and `** 2` overflowed for differences > 181 | MSE far too small and meaningless (Xue, a0001: reported **1 565**, true **22 390**). The earlier "MSE vs Capacity" chart (values ~700-1 500) is invalid; PSNR used it too | float64; Xue at 50 bps ≈ 47 000-50 000 on average |
-| **PSNR** used `max(stegobject)` (not the absolute peak) and the wrong MSE | wrong values | `10 log10(max|carrier|² / MSE)`; SNR and SegSNR added |
+| **PSNR** used `max(stegobject)` (not the absolute peak) and the wrong MSE | wrong values | `10 log10(max\|carrier\|² / MSE)`; SNR and SegSNR added |
 | **Embedding time dominated by logging** - `logger.debug(f"... {array}")` formats every numpy array even when DEBUG is off | PC v3: ~35 s per 4 s carrier, ~90% of it string formatting; all multi-level methods inflated | PC v3 ≈ 0.9 s per carrier (≈ 0.5-1.7 s from 25 to 100 bps); the old "Average Embedding Time" chart measured logging |
 | **Xue: bit 1 rule** `σo' = σo + β σe` instead of `σe + β σe` | bit lost whenever `σo < (1-β) σe`: BER **0.12%** | **0%** (same fix in Xue multi) |
 | **Wen: MDCT band** - number of coefficients passed instead of frame length | 1500-2500 Hz configured, 750-1250 Hz used: BER **0.06%** | band as configured, **0%** |
