@@ -1,199 +1,124 @@
 import numpy as np
-from scipy.fftpack import dct, idct
-# import random
-# from joblib import Parallel, delayed  # <--- wcześniejsza równoległość
 
-from lib.Method import MULTI_LEVEL_METHOD
+from lib.Method import DCT_MULTI_LEVEL_SVD_METHOD
 
-class DIFFERENTIAL_SVD_PEJAS_CIEROCKI_MULTI_PC_V3(MULTI_LEVEL_METHOD):
+
+class DIFFERENTIAL_SVD_PEJAS_CIEROCKI_MULTI_PC_V3(DCT_MULTI_LEVEL_SVD_METHOD):
+    """
+    PC [v3] - adaptive multi-level selection (AMLS).
+
+    For every frame the PC [v1] adaptive rule is tried on each decomposition
+    depth 1..LEVELS and the depth with the best robustness score
+
+        score = (new singular value margin) / mean|embedded frame - frame|
+
+    is used. The chosen depth of every bit is side information: it is stored in
+    the extraction key (``key['levels']``) and read back during extraction.
+    The receiver therefore needs ~log2(LEVELS) bits of side information per
+    embedded bit (see docs/METHODS.md).
+
+    Thresholds are always adaptive (the ADAPTIVE flag is not used).
+    """
+
+    # True -> decompose separately for every candidate depth (original
+    # "baseline" implementation, used to compare embedding times).
+    DECOMPOSE_PER_LEVEL = False
+
+    VARIANT_NAME = 'DIFFERENTIAL_SVD_PEJAS_CIEROCKI_MULTI_PC_V3'
+    VARIANT_NORMAL_NAME = 'PC [v3]'
 
     def __init__(self, method_arguments, logger=None):
         super().__init__(method_arguments, logger)
 
-        self.name = f"DIFFERENTIAL_SVD_PEJAS_CIEROCKI_MULTI_PC_V3_L_{self.levels}_A_{self.alpha}_B_{self.beta}_{self.where_to_hide}_FREQ_L_{self.FREQ_L}_FREQ_H_{self.FREQ_H}_FL_{self.frame_length}_ADAPTIVE_{self.adaptive}"
+        self.name = (
+            f"{self.VARIANT_NAME}_L_{self.levels}_A_{self.alpha}_B_{self.beta}_{self.where_to_hide}"
+            f"_FREQ_L_{self.FREQ_L}_FREQ_H_{self.FREQ_H}_FL_{self.frame_length}_ADAPTIVE_{self.adaptive}"
+        )
         self.domain = 'FREQUENCY'
         self.style = 'SEQUENTIAL'
-        self.normal_name = 'PC [v3]'
-        self.random_levels = []
-        
-        self.n_jobs = -1
+        self.normal_name = self.VARIANT_NORMAL_NAME
 
     def calculate_capacity(self, carrier):
         return len(carrier)
 
-    def _calculate_score_for_level(self, level, levels_evn_full, levels_odd_full, frame_dct, idx_low, idx_high, frame, bit):
-        """
-        Oblicza wynik (robustness_score) dla danego poziomu.
-        Po przebudowie metoda korzysta z wcześniej policzonej dekompozycji do
-        najgłębszego poziomu i bierze tylko prefiks [1..level] z tej samej struktury.
-        """
-        # OLD:
-        # levels_evn = self.MultiLevelSVDProcessor.multi_level_decompose(evn_dct_coeffs, level)
-        # levels_odd = self.MultiLevelSVDProcessor.multi_level_decompose(odd_dct_coeffs, level)
-        levels_evn = [(U, s.copy(), VT) for U, s, VT in levels_evn_full[:level]]
-        levels_odd = [(U, s.copy(), VT) for U, s, VT in levels_odd_full[:level]]
+    def modify_singular_values(self, ro_11, ro_21, bit):
 
-        new_levels_evn = []
-        new_levels_odd = []
-        
-        # Zmienne do przechowywania statystyk (dla późniejszego zapisu w self.s_even itp.)
-        stats = {}
+        davg = (ro_11 + ro_21) / 2.0
+        denom = self.safe_denominator(ro_21 + ro_11)
 
-        # 2. Modyfikacja współczynników
-        for i, ((U_evn, s_evn, VT_evn), (U_odd, s_odd, VT_odd)) in enumerate(zip(levels_evn, levels_odd)):
-            if i == level - 1:
-                s_evn_max_idx = np.argmax(s_evn)
-                s_odd_max_idx = np.argmax(s_odd)
-                
-                old_s_even = s_evn[s_evn_max_idx]
-                old_s_odd = s_odd[s_odd_max_idx]
-                
-                ro_11 = old_s_even
-                ro_21 = old_s_odd
+        T_bu_1 = self.alpha + 2.0 * (ro_21 - ro_11) / denom
+        T_bu_2 = self.beta + 2.0 * (ro_11 - ro_21) / denom
 
-                davg = (ro_11 + ro_21) / 2.0
-                # Zabezpieczenie przed dzieleniem przez zero, choć przy SVD rzadkie
-                denom = (ro_21 + ro_11) if (ro_21 + ro_11) != 0 else 1e-10
-                
-                T_bu_1 = self.alpha + 2.0 * (ro_21 - ro_11) / denom
-                T_bu_2 = self.beta + 2.0 * (ro_11 - ro_21) / denom
+        ro_dash_11, ro_dash_21 = ro_11, ro_21
 
-                ro_dash_11 = ro_11
-                ro_dash_21 = ro_21
-
-                if bit == 0:
-                    if ro_11 - ro_21 >= T_bu_1 * davg:
-                        ro_dash_11 = ro_11
-                        ro_dash_21 = ro_21
-                    else:
-                        ro_dash_11 = ro_11 + T_bu_1 * davg / 2
-                        ro_dash_21 = ro_21 - T_bu_1 * davg / 2
-                elif bit == 1:
-                    if (ro_21 - ro_11) >= T_bu_2 * davg:
-                        ro_dash_11 = ro_11
-                        ro_dash_21 = ro_21
-                    else:
-                        ro_dash_11 = ro_11 - T_bu_2 * davg / 2
-                        ro_dash_21 = ro_21 + T_bu_2 * davg / 2
-
-                s_evn[s_evn_max_idx] = ro_dash_11
-                s_odd[s_odd_max_idx] = ro_dash_21
-                
-                # Zapisujemy statystyki do słownika
-                stats['old_s_even'] = old_s_even
-                stats['old_s_odd'] = old_s_odd
-                stats['new_s_even'] = ro_dash_11
-                stats['new_s_odd'] = ro_dash_21
-                stats['alpha_val'] = T_bu_1
-                stats['beta_val'] = T_bu_2
-                stats['ro_dash_11'] = ro_dash_11
-                stats['ro_dash_21'] = ro_dash_21
-
-            new_levels_evn.append((U_evn, s_evn, VT_evn))
-            new_levels_odd.append((U_odd, s_odd, VT_odd))
-
-        rec_evn = self.MultiLevelSVDProcessor.reconstruct_from_levels(new_levels_evn)
-        rec_odd = self.MultiLevelSVDProcessor.reconstruct_from_levels(new_levels_odd)
-
-        # OLD:
-        # coeffs = []
-        # total_len = len(rec_evn) + len(rec_odd)
-        # for k in range(total_len):
-        #     coeffs.append(rec_evn[k // 2] if k % 2 == 0 else rec_odd[k // 2])
-        total_len = len(rec_evn) + len(rec_odd)
-        coeffs = np.empty(total_len, dtype=rec_evn.dtype)
-        coeffs[::2] = rec_evn
-        coeffs[1::2] = rec_odd
-
-        full_dct = frame_dct.copy()
-        full_dct[idx_low:idx_high] = coeffs
-        reconstructed = idct(full_dct, norm='ortho')
-
-        diff = np.mean(np.abs(reconstructed - frame))
-        
         if bit == 0:
-            robustness_score = (stats['ro_dash_11'] - stats['ro_dash_21']) / (diff + 1e-8)
+            if ro_11 - ro_21 < T_bu_1 * davg:
+                ro_dash_11 = ro_11 + T_bu_1 * davg / 2
+                ro_dash_21 = ro_21 - T_bu_1 * davg / 2
         else:
-            robustness_score = (stats['ro_dash_21'] - stats['ro_dash_11']) / (diff + 1e-8)
+            if ro_21 - ro_11 < T_bu_2 * davg:
+                ro_dash_11 = ro_11 - T_bu_2 * davg / 2
+                ro_dash_21 = ro_21 + T_bu_2 * davg / 2
 
-        return (robustness_score, level, coeffs, stats)
+        return ro_dash_11, ro_dash_21, T_bu_1, T_bu_2
+
+    def _candidate(self, level, frame, frame_dct, idx_low, idx_high, levels_evn, levels_odd, bit):
+        embedded_frame, stats = self.embed_in_levels(frame_dct, idx_low, idx_high, levels_evn, levels_odd, bit)
+
+        diff = np.mean(np.abs(embedded_frame - frame))
+        if bit == 0:
+            margin = stats['new_s_even'] - stats['new_s_odd']
+        else:
+            margin = stats['new_s_odd'] - stats['new_s_even']
+
+        return margin / (diff + 1e-8), level, embedded_frame, stats
 
     def embedd_in_frame(self, frame, bit, fs):
-        frame_dct = dct(frame, norm='ortho')
-        filtered_dct_coeffs, idx_low, idx_high = self.filter_dct_coeffs(frame_dct, fs, self.FREQ_L, self.FREQ_H)
+        frame = np.asarray(frame, dtype=np.float64)
 
-        evn_dct_coeffs = filtered_dct_coeffs[::2]
-        odd_dct_coeffs = filtered_dct_coeffs[1::2]
+        if self.DECOMPOSE_PER_LEVEL:
+            candidates = []
+            for level in range(1, self.levels + 1):
+                frame_dct, idx_low, idx_high, levels_evn, levels_odd = self.analyse_frame(frame, fs, level)
+                candidates.append(self._candidate(level, frame, frame_dct, idx_low, idx_high,
+                                                  levels_evn, levels_odd, bit))
+        else:
+            # One decomposition to the deepest level; depth ``level`` uses the
+            # prefix [1..level] (identical to decomposing to ``level`` levels).
+            frame_dct, idx_low, idx_high, levels_evn, levels_odd = self.analyse_frame(frame, fs, self.levels)
+            candidates = [
+                self._candidate(level, frame, frame_dct, idx_low, idx_high,
+                                levels_evn[:level], levels_odd[:level], bit)
+                for level in range(1, self.levels + 1)
+            ]
 
-        # OLD:
-        # results = Parallel(n_jobs=self.n_jobs)(
-        #     delayed(self._calculate_score_for_level)(
-        #         level, evn_dct_coeffs, odd_dct_coeffs, frame_dct, idx_low, idx_high, frame, bit
-        #     ) for level in range(1, self.levels + 1)
-        # )
-        # Nowa wersja: jedna dekompozycja do najgłębszego poziomu, a potem
-        # testowanie kandydatów na tej samej strukturze.
-        levels_evn_full = self.MultiLevelSVDProcessor.multi_level_decompose(evn_dct_coeffs, self.levels)
-        levels_odd_full = self.MultiLevelSVDProcessor.multi_level_decompose(odd_dct_coeffs, self.levels)
+        # max() keeps the first (shallowest) candidate on ties - as before.
+        _, best_level, best_frame, best_stats = max(candidates, key=lambda c: c[0])
 
-        results = []
-        for level in range(1, self.levels + 1):
-            results.append(
-                self._calculate_score_for_level(
-                    level, levels_evn_full, levels_odd_full, frame_dct, idx_low, idx_high, frame, bit
-                )
-            )
-
-        best_result = max(results, key=lambda x: x[0])
-        
-        best_score, best_level, best_coefficients, best_stats = best_result
-
-        self.s_even.append(best_stats['old_s_even'])
-        self.s_odd.append(best_stats['old_s_odd'])
-        self.new_s_even.append(best_stats['new_s_even'])
-        self.new_s_odd.append(best_stats['new_s_odd'])
-        self.alphas.append(best_stats['alpha_val'])
-        self.betas.append(best_stats['beta_val'])
-        
+        self.record_stats(best_stats)
         self.random_levels.append(best_level)
 
-        frame_dct[idx_low:idx_high] = best_coefficients
-        embedded_frame = idct(frame_dct, norm='ortho')
-        
-        return embedded_frame
+        return best_frame
+
+    def build_extraction_key(self, n_bits):
+        key = super().build_extraction_key(n_bits)
+        if len(self.random_levels) != n_bits:
+            raise RuntimeError(f"PC v3 stored {len(self.random_levels)} levels for {n_bits} bits.")
+        key['levels'] = [int(level) for level in self.random_levels]
+        return key
+
+    def extract_bit(self, frame, fs, bit_index, key):
+        levels = key.get('levels')
+        if not levels:
+            raise ValueError("PC v3 extraction key has no 'levels' (decomposition depth of every bit).")
+        if bit_index >= len(levels):
+            raise ValueError(f"PC v3 extraction key has {len(levels)} levels, bit {bit_index} requested.")
+        level = int(levels[bit_index])
+        if not 1 <= level <= self.levels:
+            raise ValueError(f"Invalid level {level} in PC v3 extraction key (LEVELS = {self.levels}).")
+
+        ro_11, ro_21 = self.singular_values_at_level(frame, fs, level)
+        return self.decide_bit(ro_11, ro_21)
 
     def extract_from_frame(self, frame, fs):
-        frame_dct = dct(frame, norm='ortho')
-        filtered_coeffs, k_low, k_high = self.filter_dct_coeffs(frame_dct, fs, self.FREQ_L, self.FREQ_H)
-
-        evn_dct_coeffs = filtered_coeffs[::2]
-        odd_dct_coeffs = filtered_coeffs[1::2]
-
-        # Use a stable read-index instead of popping from the shared list.
-        # This allows multiple extractions (e.g. original + attacked files) without
-        # destroying the stored levels. If the index exceeds the stored list,
-        # wrap it back to 0 to allow repeated deterministic extractions.
-        if len(self.random_levels) == 0:
-            raise ValueError("Brak zapisanego poziomu do ekstrakcji.")
-
-        if not hasattr(self, '_extract_idx'):
-            # initialize on first extraction
-            self._extract_idx = 0
-
-        # wrap-around to allow repeated extractions using same sequence
-        if self._extract_idx >= len(self.random_levels):
-            self._extract_idx = 0
-
-        level = self.random_levels[self._extract_idx]
-        self._extract_idx += 1
-
-        levels_evn = self.MultiLevelSVDProcessor.multi_level_decompose(evn_dct_coeffs, level)
-        levels_odd = self.MultiLevelSVDProcessor.multi_level_decompose(odd_dct_coeffs, level)
-
-        Ue, se, VTe = levels_evn[level - 1]
-        Uo, so, VTo = levels_odd[level - 1]
-
-        ro_11 = se[np.argmax(se)]
-        ro_21 = so[np.argmax(so)]
-
-        return 0 if (ro_11 - ro_21) > 0 else 1
+        raise RuntimeError("PC v3 needs the per-bit level map - use extraction(stegobject, key).")

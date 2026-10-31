@@ -22,9 +22,15 @@ class Logger:
 
         self.logger = logging.getLogger(log_name)
         self.logger.setLevel(logging.DEBUG)  # Logger zbiera wszystko, filtrują handlery
+        self.logger.propagate = False
+
+        # Avoid duplicated lines when a logger with the same name is created twice.
+        for handler in list(self.logger.handlers):
+            self.logger.removeHandler(handler)
+            handler.close()
 
         # File handler
-        fh = logging.FileHandler(log_path)
+        fh = logging.FileHandler(log_path, encoding='utf-8')
         fh.setLevel(log_level)
 
         formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')

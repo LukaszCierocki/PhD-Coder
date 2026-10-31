@@ -31,7 +31,7 @@ def speech_wave(fileName_):
  
 def enframe(speech, fs, winlen, ovrlen):
     
-     N, flth, foVr = len(speech), int(numpy.fix(fs*winlen)),  int(numpy.fix(fs*ovrlen))
+     N, flth, foVr = len(speech), int(numpy.trunc(fs*winlen)),  int(numpy.trunc(fs*ovrlen))
      
      if len(speech) < flth:
         print("speech file length shorter than window length")
@@ -75,7 +75,7 @@ def sflux(data, fs, winlen, ovrlen, nftt):
     ft=(Num+eps)/(Den+eps)
 
 
-    flen, fsh10 = int(numpy.fix(fs*winlen)),  int(numpy.fix(fs*ovrlen))
+    flen, fsh10 = int(numpy.trunc(fs*winlen)),  int(numpy.trunc(fs*ovrlen))
     nfr10=int(numpy.floor((len(data)-(flen-fsh10))/fsh10))
 
     #syn frames as per nfr10

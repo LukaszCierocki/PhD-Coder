@@ -4,6 +4,33 @@ from scipy.linalg import svd
 
 from lib.Method import DIFFERENTIAL_SVD_XUE_BASED_METHOD
 
+
+def xue_rule(ro_11, ro_21, bit, alpha, beta):
+    """
+    Differential SVD rule of Xue et al.
+
+    bit 0: require ro_11 - ro_21 >= alpha * ro_21, otherwise ro_11 := ro_21 + alpha * ro_21
+    bit 1: require ro_21 - ro_11 >= beta  * ro_11, otherwise ro_21 := ro_11 + beta  * ro_11
+
+    The previous implementation used ``ro_21 + beta * ro_11`` for bit 1, which
+    does not reach the threshold (and is decoded as 0) whenever
+    ro_21 < (1 - beta) * ro_11.
+    """
+    T_bu_1 = alpha * ro_21
+    T_bu_2 = beta * ro_11
+
+    ro_dash_11, ro_dash_21 = ro_11, ro_21
+
+    if bit == 0:
+        if ro_11 - ro_21 < T_bu_1:
+            ro_dash_11 = ro_21 + T_bu_1
+    else:
+        if ro_21 - ro_11 < T_bu_2:
+            ro_dash_21 = ro_11 + T_bu_2
+
+    return ro_dash_11, ro_dash_21
+
+
 class DIFFERENTIAL_SVD_XUE(DIFFERENTIAL_SVD_XUE_BASED_METHOD):
 
     def __init__(self, method_arguments, logger=None):
@@ -15,152 +42,64 @@ class DIFFERENTIAL_SVD_XUE(DIFFERENTIAL_SVD_XUE_BASED_METHOD):
 
         self.normal_name = 'Xue et. al.'
 
-
     def calculate_capacity(self, carrier):
-
-        self.logger.debug(f"Calculating capacity for carrier: {self.carrier.name}, length: {len(carrier)}")        
         return len(carrier)
+
+    def _branch_matrices(self, frame, fs):
+        frame_dct = dct(np.asarray(frame, dtype=np.float64), norm='ortho')
+        band, idx_low, idx_high = self.filter_dct_coeffs(frame_dct, fs, self.FREQ_L, self.FREQ_H)
+        evn = np.asarray(band[::2], dtype=np.float64)
+        odd = np.asarray(band[1::2], dtype=np.float64)
+        # The same matrix shape is used for embedding and extraction (the old
+        # extractor used a zero-padded square matrix instead).
+        evn_matrix, _, _ = self.vector_to_rectangular_with_padding(evn)
+        odd_matrix, _, _ = self.vector_to_rectangular_with_padding(odd)
+        return frame_dct, idx_low, idx_high, evn, odd, evn_matrix, odd_matrix
 
     def embedd_in_frame(self, frame, bit, fs):
 
-        frame_after_dct = dct(frame, norm='ortho')
-
-        self.logger.debug(f"Frame after DCT: \n{frame_after_dct}")
-
-        filtered_dct_coeffs, idx_low, idx_high = self.filter_dct_coeffs(frame_after_dct, fs, self.FREQ_L, self.FREQ_H)
-
-        self.logger.debug(f"Filtered DCT coefficients: \n{filtered_dct_coeffs}")
-
-        evn_dct_coeffs = []
-        odd_dct_coeffs = []
-
-        for i, coeff in enumerate(filtered_dct_coeffs):
-            if i % 2 == 0:
-                evn_dct_coeffs.append(coeff)
-            else:
-                odd_dct_coeffs.append(coeff)
-
-        evn_dct_coeffs = np.array(evn_dct_coeffs)
-        odd_dct_coeffs = np.array(odd_dct_coeffs)
-
-        self.logger.debug(f"Even DCT coefficients: \n{evn_dct_coeffs}")
-        self.logger.debug(f"Odd DCT coefficients: \n{odd_dct_coeffs}")
-
-        evn_matrix, padded_evn, evn_shape = self.vector_to_rectangular_with_padding(evn_dct_coeffs)
-        odd_matrix, padded_odd, odd_shape = self.vector_to_rectangular_with_padding(odd_dct_coeffs)
+        frame_dct, idx_low, idx_high, evn, odd, evn_matrix, odd_matrix = self._branch_matrices(frame, fs)
 
         U_evn, s_evn, Vh_evn = svd(evn_matrix, full_matrices=False)
         U_odd, s_odd, Vh_odd = svd(odd_matrix, full_matrices=False)
 
-        self.logger.debug(f"Even SVD singular values: \n{s_evn}")
-        self.logger.debug(f"Odd SVD singular values: \n{s_odd}")
+        i_evn = int(np.argmax(s_evn))
+        i_odd = int(np.argmax(s_odd))
 
-        s_evn_max_idx = np.argmax(s_evn)
-        s_odd_max_idx = np.argmax(s_odd)
+        ro_11 = s_evn[i_evn]
+        ro_21 = s_odd[i_odd]
 
-        ro_11 = s_evn[s_evn_max_idx]
-        ro_21 = s_odd[s_odd_max_idx]
+        ro_dash_11, ro_dash_21 = xue_rule(ro_11, ro_21, bit, self.alpha, self.beta)
 
-        T_bu_1 = self.alpha * ro_21
-        T_bu_2 = self.beta * ro_11
-
+        self.s_even.append(ro_11)
+        self.s_odd.append(ro_21)
+        self.new_s_even.append(ro_dash_11)
+        self.new_s_odd.append(ro_dash_21)
         self.alphas.append(self.alpha)
         self.betas.append(self.beta)
 
-        self.logger.debug(f"Max even singular value: {ro_11}, Max odd singular value: {ro_21}, T_bu_1: {T_bu_1}, T_bu_2: {T_bu_2}")
+        s_evn = s_evn.copy()
+        s_odd = s_odd.copy()
+        s_evn[i_evn] = ro_dash_11
+        s_odd[i_odd] = ro_dash_21
 
-        ro_dash_11 = 0
-        ro_dash_21 = 0
+        # Padding entries (if any) are dropped after the inverse SVD.
+        inv_evn = (U_evn @ np.diag(s_evn) @ Vh_evn).flatten()[:len(evn)]
+        inv_odd = (U_odd @ np.diag(s_odd) @ Vh_odd).flatten()[:len(odd)]
 
-        self.s_even.append(s_evn[s_evn_max_idx])
-        self.s_odd.append(s_odd[s_odd_max_idx])
-
-        if bit == 0:
-
-            self.logger.debug("Embedding bit 0")
-
-            if ro_11 - ro_21 >= T_bu_1:
-                self.logger.debug("Condition met for ro_11 - ro_21 >= T_bu_1")
-                ro_dash_11 = ro_11
-            else:
-                self.logger.debug("Condition not met, adjusting ro_dash_11")
-                ro_dash_11 = ro_21 + T_bu_1
-
-            ro_dash_21 = ro_21
-
-        elif bit == 1:
-
-            self.logger.debug("Embedding bit 1")
-
-            if ro_21 - ro_11 >= T_bu_2:
-                self.logger.debug("Condition met for ro_21 - ro_11 >= T_bu_2")
-                ro_dash_21 = ro_21
-            else:
-                self.logger.debug("Condition not met, adjusting ro_dash_21")
-                ro_dash_21 = ro_21 + T_bu_2
-
-            ro_dash_11 = ro_11
-
-        self.new_s_even.append(ro_dash_11)
-        self.new_s_odd.append(ro_dash_21)
-
-        s_evn[s_evn_max_idx] = ro_dash_11
-        s_odd[s_odd_max_idx] = ro_dash_21
-
-        inv_evn = (U_evn @ np.diag(s_evn) @ Vh_evn).flatten()[:len(evn_dct_coeffs)]
-        inv_odd = (U_odd @ np.diag(s_odd) @ Vh_odd).flatten()[:len(odd_dct_coeffs)]
-
-        self.logger.debug(f"Inverse even coefficients: \n{inv_evn}")
-        self.logger.debug(f"Inverse odd coefficients: \n{inv_odd}")
-
-        inv_evn = inv_evn[:len(evn_dct_coeffs)]
-        inv_odd = inv_odd[:len(odd_dct_coeffs)]
-
-        # Scalanie
-        merged_coeffs = np.empty(len(inv_evn) + len(inv_odd), dtype=evn_dct_coeffs.dtype)
+        merged_coeffs = np.empty(len(inv_evn) + len(inv_odd), dtype=np.float64)
         merged_coeffs[::2] = inv_evn
         merged_coeffs[1::2] = inv_odd
 
-        coefficents = np.array(merged_coeffs)
-        frame_after_dct[idx_low:idx_high] = coefficents
+        frame_dct[idx_low:idx_high] = merged_coeffs
 
-        inverse_dct_frame = idct(frame_after_dct, norm='ortho')
-
-        return inverse_dct_frame
+        return idct(frame_dct, norm='ortho')
 
     def extract_from_frame(self, frame, fs):
-        
-        frame_dct = dct(frame, norm='ortho')
 
-        filtered_coeffs, k_low, k_high = self.filter_dct_coeffs(frame_dct, fs, self.FREQ_L, self.FREQ_H)
+        _, _, _, _, _, evn_matrix, odd_matrix = self._branch_matrices(frame, fs)
 
-        evn_dct_coeffs = []
-        odd_dct_coeffs = []
+        ro_11 = np.max(svd(evn_matrix, compute_uv=False))
+        ro_21 = np.max(svd(odd_matrix, compute_uv=False))
 
-        for i, coeff in enumerate(filtered_coeffs):
-            if i % 2 == 0:
-                evn_dct_coeffs.append(coeff)
-            else:
-                odd_dct_coeffs.append(coeff)
-
-        evn_dct_coeffs = np.array(evn_dct_coeffs)
-        odd_dct_coeffs = np.array(odd_dct_coeffs)
-
-        evn_matrix, num_padded_evn = self.make_square_matrix_with_padding(evn_dct_coeffs)
-        odd_matrix, num_padded_odd = self.make_square_matrix_with_padding(odd_dct_coeffs)
-
-        U_evn, s_evn, Vh_evn = svd(evn_matrix)
-        U_odd, s_odd, Vh_odd = svd(odd_matrix)
-
-        s_evn_max_idx = np.argmax(s_evn)
-        s_odd_max_idx = np.argmax(s_odd)
-
-        ro_11 = s_evn[s_evn_max_idx]
-        ro_21 = s_odd[s_odd_max_idx]
-
-        dj = ro_11 - ro_21
-
-        if dj > 0:
-            return 0
-        else:
-            return 1
+        return 0 if ro_11 - ro_21 > 0 else 1

@@ -17,15 +17,77 @@ from colorama import Fore, Style, init
 
 from collections import defaultdict
 
+from lib.Method import ensure_logger
+
 init(autoreset=True)
+
+# Numeric result columns (used for CSV export, grouping and plots).
+NUMERIC_COLUMNS = ['MSE', 'PSNR [dB]', 'SNR [dB]', 'SEGSNR [dB]', 'PESQ', 'STOI', 'BER [%]',
+                   'CAP. [%]', 'CAP. [bps]', 'EFF. CAP. [bps]', 'EMB TIME [s]', 'EXT TIME [s]']
+
+BEST_TYPE = {
+    'MSE': 'min', 'PSNR [dB]': 'max', 'SNR [dB]': 'max', 'SEGSNR [dB]': 'max', 'PESQ': 'max',
+    'STOI': 'max', 'BER [%]': 'min', 'CAP. [%]': 'max', 'CAP. [bps]': 'max', 'EFF. CAP. [bps]': 'max',
+    'EMB TIME [s]': 'min', 'EXT TIME [s]': 'min',
+}
+
+CSV_FIELDNAMES = [
+    'NAME', 'TEST NAME', 'METHOD CLASS', 'LEVELS', 'VAD', 'ADAPTIVE', 'REDUCED', 'ALPHA', 'BETA', 'FRAMES',
+    'FREQ_L', 'FREQ_H', 'FRAME [ms]', 'HOP [ms]', 'CARRIER', 'TEST', 'STEGOBJECT', 'SECRET', 'SEC. SIZE [b]',
+    'EXTRACTED [b]', 'BIT ERRORS', 'MSE', 'PSNR [dB]', 'SNR [dB]', 'SEGSNR [dB]', 'PESQ', 'STOI', 'BER [%]',
+    'CAP. [%]', 'CAP. [bps]', 'EFF. CAP. [bps]', 'EMB TIME [s]', 'EXT TIME [s]', 'CLIPPED', 'DOMAIN', 'STYLE'
+]
+
+# Attack file prefixes written by lib/Attacks.py -> test label
+ATTACK_LABELS = [
+    ('filtered_low_pass_', 'FILTERED_LOW_PASS'),
+    ('filtered_high_pass_', 'FILTERED_HIGH_PASS'),
+    ('noised', 'NOISED'),
+    ('requantized', 'REQUANTIZED'),
+    ('mp3_attacked', 'MP3_ATTACKED'),
+    ('jitter', 'JITTER'),
+    ('packetloss_', 'PACKET_LOSS'),
+    ('resample_attack', 'RESAMPLE_ATTACK'),
+    ('scaled', 'SCALED'),
+    ('g711_ulaw_attacked', 'G711_ULAW_ATTACKED'),
+    ('g711_alaw_attacked', 'G711_ALAW_ATTACKED'),
+]
+
+
+def test_label_from_filename(stegobject_name, test_name=None):
+    """
+    Maps an (attacked) stegobject file name to a test label ('NONE' for the
+    clean stegobject). If ``test_name`` (the clean stegobject name without
+    extension) is given, only the prefix in front of it is inspected, so
+    method or carrier names can never be mistaken for an attack.
+    """
+    name = os.path.splitext(os.path.basename(stegobject_name))[0]
+    prefix = name
+    if test_name:
+        if name == test_name:
+            return 'NONE'
+        if name.endswith(test_name):
+            prefix = name[:-len(test_name)]
+    for marker, label in ATTACK_LABELS:
+        if prefix.startswith(marker) or (not test_name and marker in prefix):
+            parts = prefix.split('_')
+            if label == 'MP3_ATTACKED' and len(parts) > 2:
+                return f'{label}_{parts[2]}'
+            if label == 'SCALED' and len(parts) > 1:
+                return f'{label}_{parts[1]}'
+            return label
+    return 'NONE'
 
 class Analysis:
     
-    def __init__(self, logger):
-        
+    def __init__(self, logger=None, plots=True):
+
         self.methods_analysis = []
-        self.logger = logger
+        self.logger = ensure_logger(logger)
         self.singular_values_per_carrier = []
+        # Per-stegobject diagnostic charts (waveforms, spectrograms, ...). They
+        # are slow for large experiments - disable with plots=False.
+        self.plots = plots
 
     def plot_singular_values(self, save_path=None, use_log_scale=False):
 
@@ -87,8 +149,9 @@ class Analysis:
         
         # Tworzenie wykresu
         
-        data = data / numpy.max(numpy.abs(data))
-        
+        data = numpy.asarray(data, dtype=numpy.float64)
+        data = data / (numpy.max(numpy.abs(data)) or 1.0)
+
         plt.figure(figsize=(14, 5))
         plt.plot(time, data)
         plt.xlabel('Time (s)')
@@ -118,13 +181,11 @@ class Analysis:
 
         # Normalizacja Z-score
         if normalize:
-            mean_orig_val = np.mean(delta_s_orig)
-            std_orig_val = np.std(delta_s_orig)
-            delta_s_orig = (delta_s_orig - mean_orig_val) / std_orig_val
+            std_orig_val = np.std(delta_s_orig) or 1.0
+            delta_s_orig = (delta_s_orig - np.mean(delta_s_orig)) / std_orig_val
 
-            mean_mod_val = np.mean(delta_s_mod)
-            std_mod_val = np.std(delta_s_mod)
-            delta_s_mod = (delta_s_mod - mean_mod_val) / std_mod_val
+            std_mod_val = np.std(delta_s_mod) or 1.0
+            delta_s_mod = (delta_s_mod - np.mean(delta_s_mod)) / std_mod_val
 
         mean_orig = np.mean(delta_s_orig)
         mean_mod = np.mean(delta_s_mod)
@@ -270,8 +331,9 @@ class Analysis:
     def plot_signal_with_singular_values(self, data, method ,fs, current_test_charts_directory, filename):
 
         time = numpy.linspace(0, len(data) / fs, len(data))
-        
-        data = data / numpy.max(numpy.abs(data))
+
+        data = numpy.asarray(data, dtype=numpy.float64)
+        data = data / (numpy.max(numpy.abs(data)) or 1.0)
 
         s_even = method.s_even
         s_odd = method.s_odd
@@ -297,8 +359,8 @@ class Analysis:
         # s_even = 2 * (s_even - numpy.min(s_even)) / (numpy.max(s_even) - numpy.min(s_even)) - 1
         # s_odd = 2 * (s_odd - numpy.min(s_odd)) / (numpy.max(s_odd) - numpy.min(s_odd)) - 1
 
-        s_avg = 2 * (s_avg - numpy.min(s_avg)) / (numpy.max(s_avg) - numpy.min(s_avg)) - 1
-        new_s_avg = 2 * (new_s_avg - numpy.min(new_s_avg)) / (numpy.max(new_s_avg) - numpy.min(new_s_avg)) - 1
+        s_avg = 2 * (s_avg - numpy.min(s_avg)) / ((numpy.max(s_avg) - numpy.min(s_avg)) or 1.0) - 1
+        new_s_avg = 2 * (new_s_avg - numpy.min(new_s_avg)) / ((numpy.max(new_s_avg) - numpy.min(new_s_avg)) or 1.0) - 1
 
         frame_times_avg = numpy.linspace(0, duration, len(s_avg), endpoint=False)
         # frame_times_odd = numpy.linspace(0, duration, len(s_odd), endpoint=False)
@@ -445,99 +507,103 @@ class Analysis:
 
         return bitrate_bps
 
-    def analyze(self, method, carrier, secret, stegobject, extracted_data):
+    def analyze(self, method, carrier, secret, stegobject, extracted_data, test_label=None, plots=None):
+        """
+        Computes all quality / robustness metrics of one stegobject and stores
+        them as one row of ``self.methods_analysis``.
+
+        Every metric aligns the signals to the common length (attacks may change
+        it) and works in float64 (int16 arithmetic overflowed before).
+        """
 
         stegobject_name = stegobject['filename']
         stegobject_fs = stegobject['fs']
-        stegobject = stegobject['content_signed_int16']
+        stegobject = np.asarray(stegobject['content_signed_int16'])
 
-        current_test_charts_directory = method.method_directories['Charts']
-        current_carrier_charts_directory = method.method_directories['Carriers_Charts']
+        plots = self.plots if plots is None else plots
 
         self.logger.info(f"Analyzing method: {method.normal_name} on carrier: {carrier.name} with stegobject: {stegobject_name}")
-        
-        if 'filtered_low_pass' in stegobject_name:
-            test_name = 'FILTERED_LOW_PASS'
-        elif 'filtered_high_pass' in stegobject_name:
-            test_name = 'FILTERED_HIGH_PASS'
-        elif 'noised' in stegobject_name:
-            test_name = 'NOISED'
-        elif 'requantized' in stegobject_name:
-            test_name = 'REQUANTIZED'
-        elif 'mp3_attacked' in stegobject_name:
-            parts = stegobject_name.split("_")
-            bitrate = parts[2]
-            test_name = 'MP3_ATTACKED' + f'_{bitrate}'
-        elif 'jitter' in stegobject_name:
-            test_name = 'JITTER'
-        elif 'packetloss_' in stegobject_name:
-            test_name = 'PACKET_LOSS'
-        elif 'resample_attack' in stegobject_name:
-            test_name = 'RESAMPLE_ATTACK'
-        elif 'scaled' in stegobject_name:
-            parts = stegobject_name.split("_")
-            scale_factor = parts[1]
-            test_name = 'SCALED' + f'_{scale_factor}'
-        elif 'g711_ulaw_attacked' in stegobject_name:
-            test_name = 'G711_ULAW_ATTACKED'
-        elif 'g711_alaw_attacked' in stegobject_name:
-            test_name = 'G711_ALAW_ATTACKED'
-        else:
-            test_name = 'NONE'
-        
+
+        test_name = test_label or test_label_from_filename(stegobject_name)
+
+        bit_errors, ber = self.count_bit_errors(secret, extracted_data)
+
         method_analysis = {
-            'NAME' : method.normal_name,
-            'TEST NAME' : method.name,
-            'LEVELS' : method.levels,
-            'FRAMES' : method.where_to_hide,
-            'VAD' : method.type_of_vad,
-            'ADAPTIVE' : method.adaptive,
-            'REDUCED'  : method.reduced,
-            'ALPHA' : method.alpha,
-            'BETA' : method.beta,
-            'CARRIER' : carrier.name,
-            'TEST' : test_name,
-            'LEVELS' : method.levels,
-            'SECRET' : method.secret.name,
-            'SEC. SIZE [b]' : method.secret.size,
-            'MSE' : round(self.calculate_mean_squared_error(carrier.data_signed_int16, stegobject), 3),
-            'PSNR [dB]' : round(self.calculate_peak_signal_to_noise_ratio(carrier, stegobject), 3),
-            'PESQ' : round(self.calculate_perceptual_evaluation_of_speech_quality(carrier.fs, carrier.data_signed_int16, stegobject), 3),
-            'STOI' : round(self.calculate_stoi(carrier.data_signed_int16, stegobject, carrier.fs), 3),
-            'BER [%]' : round(self.calculate_bit_error_rate(method.secret, extracted_data), 3),
-            'CAP. [%]' : round((method.capacity / carrier.carrier_size_in_bits) * 100, 3),
-            'CAP. [bps]' : round(self.calculate_bitrate(method.frame_length, carrier.fs, method.hop_duration_ms, method.bits_per_frame), 3),
-            'EMB TIME [s]' : round(method.embedding_time, 3),
-            'EXT TIME [s]' : round(method.extraction_time, 3),
-            'DOMAIN' : method.domain,
-            'STYLE' : method.style
+            'NAME': method.normal_name,
+            'TEST NAME': method.name,
+            'METHOD CLASS': method.__class__.__name__,
+            'LEVELS': getattr(method, 'levels', None),
+            'FRAMES': method.where_to_hide,
+            'VAD': method.type_of_vad,
+            'ADAPTIVE': method.adaptive,
+            'REDUCED': method.reduced,
+            'ALPHA': method.alpha,
+            'BETA': method.beta,
+            'FREQ_L': method.FREQ_L,
+            'FREQ_H': method.FREQ_H,
+            'FRAME [ms]': method.frame_length,
+            'HOP [ms]': method.hop_duration_ms,
+            'CARRIER': carrier.name,
+            'TEST': test_name,
+            'STEGOBJECT': stegobject_name,
+            'SECRET': secret.name,
+            'SEC. SIZE [b]': len(secret.binary_data),
+            'EXTRACTED [b]': len(extracted_data) if extracted_data is not None else 0,
+            'BIT ERRORS': bit_errors,
+            'MSE': round(self.calculate_mean_squared_error(carrier.data_signed_int16, stegobject), 3),
+            'PSNR [dB]': round(self.calculate_peak_signal_to_noise_ratio(carrier, stegobject), 3),
+            'SNR [dB]': round(self.calculate_snr(carrier.data_signed_int16, stegobject), 3),
+            'SEGSNR [dB]': round(self.calculate_segmented_snr(carrier.data_signed_int16, stegobject,
+                                                                int(0.02 * carrier.fs)), 3),
+            'PESQ': round(self.calculate_perceptual_evaluation_of_speech_quality(carrier.fs, carrier.data_signed_int16, stegobject), 3),
+            'STOI': round(self.calculate_stoi(carrier.data_signed_int16, stegobject, carrier.fs), 3),
+            'BER [%]': round(ber, 3),
+            'CAP. [%]': round((method.capacity / carrier.carrier_size_in_bits) * 100, 3),
+            'CAP. [bps]': round(self.calculate_bitrate(method.frame_length, carrier.fs, method.hop_duration_ms, method.bits_per_frame), 3),
+            'EFF. CAP. [bps]': round(len(secret.binary_data) / (len(carrier.data_signed_int16) / carrier.fs), 3),
+            'EMB TIME [s]': round(method.embedding_time, 4) if method.embedding_time is not None else None,
+            'EXT TIME [s]': round(method.extraction_time, 4) if method.extraction_time is not None else None,
+            'CLIPPED': getattr(method, 'clipped_samples', 0),
+            'DOMAIN': method.domain,
+            'STYLE': method.style
         }
-        
 
-        self.plot_audio_waveform(carrier.data_signed_int16, carrier.fs, current_carrier_charts_directory, carrier.name)
-        
-        self.plot_audio_waveform(stegobject, stegobject_fs, current_test_charts_directory, stegobject_name)
-        
-        self.plot_signal_difference(carrier.data_signed_int16, stegobject, carrier.fs, current_test_charts_directory, carrier.name, stegobject_name)
+        if plots:
+            self._safe_plot(self.plot_audio_waveform, carrier.data_signed_int16, carrier.fs,
+                            method.method_directories['Carriers_Charts'], carrier.name)
+            self._safe_plot(self.plot_signal_spectrogram, carrier.data_signed_int16, carrier.fs,
+                            method.method_directories['Carriers_Charts'], carrier.name)
+            charts = method.method_directories['Charts']
+            self._safe_plot(self.plot_audio_waveform, stegobject, stegobject_fs, charts, stegobject_name)
+            self._safe_plot(self.plot_signal_difference, carrier.data_signed_int16, stegobject, carrier.fs,
+                            charts, carrier.name, stegobject_name)
 
-        self.plot_signal_spectrogram(carrier.data_signed_int16, carrier.fs, current_carrier_charts_directory, carrier.name)
-        
-        if('DIFFERENTIAL_SVD' or 'MDCT_SVD_WEN' in method.name):
-            self.plot_signal_with_singular_values(stegobject, method, stegobject_fs, current_test_charts_directory, stegobject_name)
-            self.plot_signal_with_singular_values_and_spectrogram(stegobject, method, stegobject_fs, current_test_charts_directory, stegobject_name)
-            self.plot_singular_values_and_delta(method, carrier.name, current_test_charts_directory, stegobject_name)
-            self.plot_alphas_betas(method, current_test_charts_directory, stegobject_name)
+            if len(getattr(method, 's_even', [])) > 1:
+                self._safe_plot(self.plot_signal_with_singular_values, stegobject, method, stegobject_fs, charts, stegobject_name)
+                self._safe_plot(self.plot_signal_with_singular_values_and_spectrogram, stegobject, method, stegobject_fs, charts, stegobject_name)
+                self._safe_plot(self.plot_singular_values_and_delta, method, carrier.name, charts, stegobject_name)
+                self._safe_plot(self.plot_alphas_betas, method, charts, stegobject_name)
 
-        self.singular_values_per_carrier.append({
-            'carrier_name': carrier.name,
-            'method_name': method.normal_name,
-            's_even': method.s_even,
-            's_odd': method.s_odd,
-            'new_s_even': method.new_s_even,
-            'new_s_odd': method.new_s_odd
-        })
+        if getattr(method, 's_even', None):
+            self.singular_values_per_carrier.append({
+                'carrier_name': carrier.name,
+                'method_name': method.normal_name,
+                's_even': list(method.s_even),
+                's_odd': list(method.s_odd),
+                'new_s_even': list(method.new_s_even),
+                'new_s_odd': list(method.new_s_odd)
+            })
 
         self.methods_analysis.append(method_analysis)
+        return method_analysis
+
+    def _safe_plot(self, function, *args, **kwargs):
+        """Diagnostic plots must never abort an experiment."""
+        try:
+            function(*args, **kwargs)
+        except Exception as e:
+            plt.close('all')
+            self.logger.warning(f"Plot {function.__name__} failed: {e}")
 
     def plot_signal_spectrogram(self, data, fs, current_test_charts_directory, filename):
 
@@ -573,43 +639,36 @@ class Analysis:
     
     def calculate_stoi(self, reference: numpy.ndarray, degraded: numpy.ndarray, fs: int = 16000, extended: bool = True) -> float:
         """
-        Oblicza STOI lub Extended STOI między dwoma sygnałami dźwiękowymi.
-        
-        Parametry:
-        - reference: numpy array z czystym (referencyjnym) sygnałem
-        - degraded: numpy array ze zniekształconym/przetworzonym sygnałem
-        - fs: częstotliwość próbkowania (domyślnie 16000 Hz)
-        - extended: czy użyć ESTOI (domyślnie False — klasyczny STOI)
-
-        Zwraca:
-        - wartość STOI/ESTOI w zakresie 0–1
+        Extended STOI (default) or classic STOI between two signals (aligned to
+        the common length). Returns NaN if it cannot be computed.
         """
-        # Upewnij się, że oba sygnały mają ten sam rozmiar
-        min_len = min(len(reference), len(degraded))
-        reference = reference[:min_len]
-        degraded = degraded[:min_len]
+        reference, degraded = self._align(reference, degraded)
+        try:
+            return float(stoi(reference, degraded, fs, extended=extended))
+        except Exception as e:
+            self.logger.warning(f"STOI could not be computed: {e}")
+            return float('nan')
 
-        # Oblicz STOI / ESTOI
-        score = stoi(reference, degraded, fs, extended=extended)
-        return score
-            
     def save_methods_analysis_to_csv(self, filepath):
-
-        fieldnames = [
-            'NAME', 'TEST NAME', 'LEVELS', 'VAD', 'ADAPTIVE', 'REDUCED' , 'ALPHA', 'BETA', 'FRAMES', 'CARRIER', 'TEST', 'LEVELS', 'SECRET' , 'SEC. SIZE [b]' , 'MSE', 'PESQ', 'STOI', 'PSNR [dB]','BER [%]' ,'CAP. [%]', 'CAP. [bps]', 'EMB TIME [s]', 'EXT TIME [s]', 'DOMAIN' ,'STYLE'
-        ]
 
         current_time = datetime.now().strftime("%Y%m%d_%H%M%S")
         filename = f'test_analysis_{current_time}.csv'
         path = os.path.join(filepath, filename)
 
-        with open(path, mode='w', newline='') as file:
-            writer = csv.DictWriter(file, fieldnames=fieldnames)
+        fieldnames = list(CSV_FIELDNAMES)
+        for row in self.methods_analysis:
+            for key in row:
+                if key not in fieldnames:
+                    fieldnames.append(key)
 
+        with open(path, mode='w', newline='', encoding='utf-8') as file:
+            writer = csv.DictWriter(file, fieldnames=fieldnames, extrasaction='ignore')
             writer.writeheader()
             for analysis in self.methods_analysis:
                 writer.writerow(analysis)
-                        
+
+        return path
+
     def printTable(self, myDict, colList=None):
         """
         Pretty print a list of dictionaries (myDict) as a dynamically sized table.
@@ -638,46 +697,62 @@ class Analysis:
         for row in myList[1:]:
             print(formatStr.format(*row))
         
+    @staticmethod
+    def _align(a, b):
+        a = np.asarray(a, dtype=np.float64)
+        b = np.asarray(b, dtype=np.float64)
+        n = min(len(a), len(b))
+        return a[:n], b[:n]
+
     def calculate_peak_signal_to_noise_ratio(self, carrier, stegobject):
         """
-        Oblicza PSNR (Peak Signal-to-Noise Ratio) między nośnikiem a stegobiektem.
+        PSNR = 10 log10(peak^2 / MSE), peak = max |carrier| (the old version used
+        max(stegobject) - not the absolute peak - and an overflowing MSE).
         """
-
-        mse = self.calculate_mean_squared_error(carrier.data_signed_int16, stegobject)
-        
-        max_signal = numpy.max(stegobject)
+        reference = carrier.data_signed_int16 if hasattr(carrier, 'data_signed_int16') else carrier
+        mse = self.calculate_mean_squared_error(reference, stegobject)
+        peak = float(np.max(np.abs(np.asarray(reference, dtype=np.float64)))) if len(reference) else 0.0
 
         if mse == 0:
-            psnr = float('inf')
-        else:
-            psnr = 20 *  math.log10(max_signal / math.sqrt(mse))
+            return float('inf')
+        if peak == 0:
+            return float('-inf')
+        return 10 * math.log10(peak ** 2 / mse)
 
-        return psnr
-    
-    def calculate_segmented_snr(self, carrier, stegobject, segment_size):
+    def calculate_snr(self, carrier, stegobject):
+        """SNR [dB] = 10 log10( sum(x^2) / sum((x - y)^2) )."""
+        x, y = self._align(carrier, stegobject)
+        noise = np.sum((x - y) ** 2)
+        signal = np.sum(x ** 2)
+        if noise == 0:
+            return float('inf')
+        if signal == 0:
+            return float('-inf')
+        return 10 * math.log10(signal / noise)
+
+    def calculate_segmented_snr(self, carrier, stegobject, segment_size, min_db=-10.0, max_db=35.0):
         """
-        Oblicza SegmentedSNR (Segmented Signal-to-Noise Ratio) między nośnikiem a stegobiektem.
+        Segmental SNR [dB]: mean over segments of 10 log10(sum x^2 / sum e^2),
+        each segment clamped to [min_db, max_db] (the usual convention for
+        speech). Silent segments (sum x^2 == 0) are skipped.
         """
-        num_segments = len(carrier) // segment_size
-        segmented_snr = []
+        x, y = self._align(carrier, stegobject)
+        segment_size = max(1, int(segment_size))
+        num_segments = len(x) // segment_size
+        values = []
 
         for i in range(num_segments):
-            carrier_segment = carrier[i * segment_size:(i + 1) * segment_size]
-            stegobject_segment = stegobject[i * segment_size:(i + 1) * segment_size]
-            
-            mse = self.calculate_mean_squared_error(carrier_segment, stegobject_segment)
-            max_signal = numpy.max(stegobject_segment)
+            xs = x[i * segment_size:(i + 1) * segment_size]
+            es = xs - y[i * segment_size:(i + 1) * segment_size]
+            signal = np.sum(xs ** 2)
+            noise = np.sum(es ** 2)
+            if signal == 0:
+                continue
+            snr = max_db if noise == 0 else 10 * math.log10(signal / noise)
+            values.append(min(max(snr, min_db), max_db))
 
-            if mse <= 0:
-                snr = float('inf')
-            else:
-                snr = 20 * math.log10(max_signal / math.sqrt(mse))
-            
-            segmented_snr.append(snr)
+        return float(np.mean(values)) if values else float('nan')
 
-        average_snr = numpy.mean(segmented_snr)
-        return average_snr
-    
     def analyze_sample_difference_histogram(self, carrier_waveform, stego_waveform, current_test_charts_directory, filename):
         """
         Funkcja rysuje histogram różnic między sąsiadującymi próbkami dla nośnika i stegobobiektu.
@@ -722,51 +797,53 @@ class Analysis:
         plt.close()
 
     def calculate_signal_to_noise_ratio(self, method):
-    # Oblicz szum jako różnicę między nośnikiem a stegoobiektem
-        noise = method.carrier.raw_data - method.stegobject
-        
-        # Oblicz moc sygnału (nośnika)
-        signal_power = numpy.mean(method.carrier.raw_data ** 2)
-        
-        # Oblicz moc szumu
-        noise_power = numpy.mean(noise ** 2)
-        
-        # Oblicz SNR
-        snr = 10 * numpy.log10(signal_power / noise_power)
-        
-        return snr
-    
+        """SNR between the carrier of ``method`` and ``method.stegobject``."""
+        return self.calculate_snr(method.carrier.data_signed_int16, method.stegobject)
+
+    @staticmethod
+    def count_bit_errors(secret, extracted_data):
+        """
+        Returns ``(errors, ber_percent)``. Missing bits (extracted shorter than
+        the secret, e.g. after an attack that shortens the signal) and extra
+        bits are counted as errors - before they were silently ignored.
+        """
+        reference = [int(b) for b in (secret.binary_data if hasattr(secret, 'binary_data') else secret)]
+        recovered = [int(b) for b in extracted_data] if extracted_data is not None else []
+
+        if not reference:
+            raise ValueError("Cannot compute BER for an empty secret.")
+
+        errors = sum(o != r for o, r in zip(reference, recovered))
+        errors += abs(len(reference) - len(recovered))
+        return errors, errors / len(reference) * 100
+
     def calculate_bit_error_rate(self, secret, extracted_data):
-        
-        secret = secret.binary_data
-        recovered_bits = extracted_data
-        
-        errors = 0
-        secret_length = 0
-        for oryginal, recovered in zip(secret, recovered_bits):
-            if oryginal != recovered:
-                errors += 1
-        secret_length += len(secret)
 
-        self.logger.info(f"Calculated BER: {errors} errors in {secret_length} bits")
+        errors, ber = self.count_bit_errors(secret, extracted_data)
 
-        return ((errors / secret_length) * 100)
-            
+        self.logger.info(f"Calculated BER: {errors} errors in {len(secret.binary_data)} bits")
+
+        return ber
+
     def print_results(self):
 
-        columns_list = ['NAME', 'CARRIER', 'LEVELS', 'VAD', 'ADAPTIVE', 'REDUCED', 'ALPHA', 'BETA' ,'FRAMES', 'TEST', 'SECRET', 'SEC. SIZE [b]', 'MSE', 'PSNR [dB]', 'PESQ', 'STOI','BER [%]', 'CAP. [%]', 'CAP. [bps]','EMB TIME [s]', 'EXT TIME [s]']
-                
+        columns_list = ['NAME', 'CARRIER', 'LEVELS', 'VAD', 'ADAPTIVE', 'REDUCED', 'ALPHA', 'BETA', 'FRAMES', 'TEST',
+                        'SECRET', 'SEC. SIZE [b]', 'MSE', 'PSNR [dB]', 'SNR [dB]', 'PESQ', 'STOI', 'BER [%]',
+                        'CAP. [%]', 'CAP. [bps]', 'EFF. CAP. [bps]', 'EMB TIME [s]', 'EXT TIME [s]']
+
         self.printTable(self.methods_analysis, columns_list)
 
     def calculate_mean_squared_error(self, carrier, stegobject):
+        """
+        MSE in float64 on the common length. (The old version subtracted and
+        squared int16 arrays, which overflowed for |difference| > 181 and gave
+        MSE values that were far too small.)
+        """
+        x, y = self._align(carrier, stegobject)
+        if len(x) == 0:
+            return float('nan')
+        return float(np.mean((x - y) ** 2))
 
-        roznica = carrier - stegobject
-
-        # Podnieś różnicę do kwadratu i oblicz średnią
-        mse = numpy.mean(roznica ** 2)
-
-        return mse
-    
     def calculate_perceptual_evaluation_of_speech_quality(self, fs ,carrier, stegobject):
         try:
             # Ensure arrays
@@ -856,7 +933,8 @@ class Analysis:
 
     def plot_signal_with_singular_values_and_spectrogram(self, data, method, fs, current_test_charts_directory, filename):
         time = np.linspace(0, len(data) / fs, len(data))
-        data = data / np.max(np.abs(data))  # Normalizacja sygnału
+        data = np.asarray(data, dtype=np.float64)
+        data = data / (np.max(np.abs(data)) or 1.0)  # Normalizacja sygnału
 
         # Wartości osobliwe
         s_even = np.array(method.s_even)
@@ -868,8 +946,8 @@ class Analysis:
         new_s_avg = (new_s_even + new_s_odd) / 2
 
         # Normalizacja SVD do [-1, 1]
-        s_avg = 2 * (s_avg - np.min(s_avg)) / (np.max(s_avg) - np.min(s_avg)) - 1
-        new_s_avg = 2 * (new_s_avg - np.min(new_s_avg)) / (np.max(new_s_avg) - np.min(new_s_avg)) - 1
+        s_avg = 2 * (s_avg - np.min(s_avg)) / ((np.max(s_avg) - np.min(s_avg)) or 1.0) - 1
+        new_s_avg = 2 * (new_s_avg - np.min(new_s_avg)) / ((np.max(new_s_avg) - np.min(new_s_avg)) or 1.0) - 1
 
         duration = len(data) / fs
         frame_times_avg = np.linspace(0, duration, len(s_avg), endpoint=False)
@@ -919,30 +997,15 @@ class Analysis:
         if df.empty:
             return
 
-        for field in group_by_fields:
-            if field not in df.columns:
-                return
-
-        numeric_cols = ['MSE', 'PSNR [dB]', 'PESQ', 'STOI', 'BER [%]',
-                        'CAP. [%]', 'CAP. [bps]', 'EMB TIME [s]', 'EXT TIME [s]']
+        numeric_cols = [c for c in NUMERIC_COLUMNS if c in df.columns]
 
         for col in numeric_cols:
-            if col in df.columns:
-                df[col] = pd.to_numeric(df[col], errors='coerce')
+            df[col] = pd.to_numeric(df[col], errors='coerce').replace([np.inf, -np.inf], np.nan)
 
-        grouped = df.groupby(group_by_fields, as_index=False)[numeric_cols].mean()
+        group_by_fields = [f for f in group_by_fields if f in df.columns]
+        grouped = df.groupby(group_by_fields, as_index=False, dropna=False)[numeric_cols].mean()
 
-        best_type = {
-            'MSE': 'min',
-            'PSNR [dB]': 'max',
-            'PESQ': 'max',
-            'STOI': 'max',
-            'BER [%]': 'min',
-            'CAP. [%]': 'max',
-            'CAP. [bps]': 'max',
-            'EMB TIME [s]': 'min',
-            'EXT TIME [s]': 'min'
-        }
+        best_type = BEST_TYPE
 
         best_vals = {}
         worst_vals = {}
@@ -999,20 +1062,17 @@ class Analysis:
         if df.empty:
             return
 
-        for field in group_by_fields:
-            if field not in df.columns:
-                return
-
-        numeric_cols = ['MSE', 'PSNR [dB]', 'PESQ', 'STOI', 'BER [%]',
-                        'CAP. [%]', 'CAP. [bps]', 'EMB TIME [s]', 'EXT TIME [s]']
+        numeric_cols = [c for c in NUMERIC_COLUMNS if c in df.columns]
 
         for col in numeric_cols:
-            if col in df.columns:
-                df[col] = pd.to_numeric(df[col], errors='coerce')
+            df[col] = pd.to_numeric(df[col], errors='coerce').replace([np.inf, -np.inf], np.nan)
 
-        grouped = df.groupby(group_by_fields, as_index=False)[numeric_cols].mean()
+        group_by_fields = [f for f in group_by_fields if f in df.columns]
+        grouped = df.groupby(group_by_fields, as_index=False, dropna=False)[numeric_cols].mean()
 
         current_time = datetime.now().strftime("%Y%m%d_%H%M%S")
         filename = f'test_analysis_group_{current_time}.csv'
 
-        grouped.to_csv(os.path.join(output_path, filename), index=False)
+        path = os.path.join(output_path, filename)
+        grouped.to_csv(path, index=False)
+        return path
