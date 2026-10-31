@@ -129,8 +129,7 @@ class DIFFERENTIAL_SVD_PEJAS_CIEROCKI_MULTI_V2(MULTI_LEVEL_METHOD):
         rec_odd = self.MultiLevelSVDProcessor.reconstruct_from_levels(new_levels_odd)
 
         coeffs = []
-        # Optymalizacja pętli for coeffs (list comprehension jest szybsze)
-        # Zakładamy, że filtered_dct_coeffs ma długość len(rec_evn) + len(rec_odd)
+
         total_len = len(rec_evn) + len(rec_odd)
         for k in range(total_len):
             coeffs.append(rec_evn[k // 2] if k % 2 == 0 else rec_odd[k // 2])

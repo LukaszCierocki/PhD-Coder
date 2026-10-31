@@ -1,29 +1,17 @@
 import numpy
 import numpy as np
 import matplotlib.pyplot as plt
-import matplotlib as mpl
 import os
 import csv
 from datetime import datetime
 from skimage.metrics import structural_similarity as ssim
 import math
-from scipy.stats import chisquare
-from scipy.stats import entropy
-from scipy.stats import skew
-from scipy.signal import spectrogram
+from scipy.signal import spectrogram, resample_poly
 from pesq import pesq
-from timeit import default_timer as timer
 from pystoi.stoi import stoi
 import pandas as pd
 from tabulate import tabulate
-from collections import defaultdict
-import matplotlib.colors as mcolors
 from scipy.stats import gaussian_kde
-from scipy.stats import norm
-import itertools
-
-
-
 
 from colorama import Fore, Style, init
 
@@ -482,12 +470,18 @@ class Analysis:
             test_name = 'MP3_ATTACKED' + f'_{bitrate}'
         elif 'jitter' in stegobject_name:
             test_name = 'JITTER'
+        elif 'packetloss_' in stegobject_name:
+            test_name = 'PACKET_LOSS'
         elif 'resample_attack' in stegobject_name:
             test_name = 'RESAMPLE_ATTACK'
         elif 'scaled' in stegobject_name:
             parts = stegobject_name.split("_")
             scale_factor = parts[1]
             test_name = 'SCALED' + f'_{scale_factor}'
+        elif 'g711_ulaw_attacked' in stegobject_name:
+            test_name = 'G711_ULAW_ATTACKED'
+        elif 'g711_alaw_attacked' in stegobject_name:
+            test_name = 'G711_ALAW_ATTACKED'
         else:
             test_name = 'NONE'
         
@@ -559,7 +553,9 @@ class Analysis:
         f, t, Sxx = spectrogram(data, fs=fs, nperseg=1024, noverlap=512)
 
         plt.figure(figsize=(12, 6))
-        plt.pcolormesh(t, f, 10 * np.log10(Sxx), shading='gouraud', cmap='magma')
+        # Avoid log10(0) warnings by adding small epsilon
+        eps = 1e-10
+        plt.pcolormesh(t, f, 10 * np.log10(Sxx + eps), shading='gouraud', cmap='magma')
         plt.colorbar(label='Intensity [dB]')
         plt.title('Spectrogram of ' + filename)
         plt.xlabel('Time [s]')
@@ -772,10 +768,50 @@ class Analysis:
         return mse
     
     def calculate_perceptual_evaluation_of_speech_quality(self, fs ,carrier, stegobject):
-        
-        pesq_score = pesq(fs, carrier, stegobject, 'wb')
-        
-        return pesq_score
+        try:
+            # Ensure arrays
+            ref = numpy.asarray(carrier)
+            deg = numpy.asarray(stegobject)
+
+            # Choose target sampling frequency for PESQ (only 8000 or 16000 allowed)
+            if fs == 8000:
+                target_fs = 8000
+                mode = 'nb'
+            elif fs == 16000:
+                target_fs = 16000
+                mode = 'wb'
+            else:
+                # Choose nearest target: prefer 16000 for >= 12000, else 8000
+                target_fs = 8000 if fs < 12000 else 16000
+                mode = 'nb' if target_fs == 8000 else 'wb'
+
+                # Resample signals to target_fs using resample_poly
+                from math import gcd
+                g = gcd(int(fs), int(target_fs))
+                up = int(target_fs // g)
+                down = int(fs // g)
+
+                # Convert to float for resampling to avoid integer artifacts
+                ref = resample_poly(ref.astype(numpy.float64), up, down)
+                deg = resample_poly(deg.astype(numpy.float64), up, down)
+
+                # Convert back to int16 range
+                ref = numpy.clip(numpy.round(ref), -32768, 32767).astype(numpy.int16)
+                deg = numpy.clip(numpy.round(deg), -32768, 32767).astype(numpy.int16)
+
+            # Truncate to the same length
+            n = min(len(ref), len(deg))
+            if n == 0:
+                return float('nan')
+            ref = ref[:n]
+            deg = deg[:n]
+
+            pesq_score = pesq(target_fs, ref, deg, mode)
+            return pesq_score
+        except Exception as e:
+            if self.logger:
+                self.logger.exception(f"Error calculating PESQ: {e}")
+            return float('nan')
     
     def plot_signal_with_errors(self, signal, sample_rate, frame_duration_ms, secret, extracted_secret):
         """
@@ -843,7 +879,8 @@ class Analysis:
 
         # --- Spektrogram ---
         f, t_spec, Sxx = spectrogram(data, fs=fs, nperseg=1024, noverlap=512)
-        axs[0].pcolormesh(t_spec, f, 10 * np.log10(Sxx), shading='gouraud', cmap='magma')
+        eps = 1e-10
+        axs[0].pcolormesh(t_spec, f, 10 * np.log10(Sxx + eps), shading='gouraud', cmap='magma')
         axs[0].set_ylabel('Frequency [Hz]')
         axs[0].set_title("Spectrogram and SVD singular values – " + filename)
         axs[0].set_ylim(0, fs // 2)

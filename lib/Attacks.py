@@ -1,10 +1,9 @@
-import wave
 import numpy
 import soundfile as sf
 import os
-from scipy.signal import butter, filtfilt
-from scipy.io import wavfile
+from scipy.signal import butter, filtfilt, resample_poly
 import subprocess
+import audioop
 
 class Attacks:
     def __init__(self, logger=None):
@@ -13,17 +12,117 @@ class Attacks:
         pass
     
     def add_gaussian_noise(self, input_path, file_name, noise_level=0.005):
-    
-        samplerate, data = wavfile.read(os.path.join(input_path, file_name))
 
-        # Dodaj szum Gaussa
+        data, samplerate = sf.read(os.path.join(input_path, file_name))
+
         noise = numpy.random.normal(0, noise_level * numpy.max(data), len(data))
 
         noisy_audio = data + noise.astype(numpy.int16)
         
         output_path = os.path.join(input_path, 'noised_' + file_name)
-        # Zapisz zaszumiony sygnał do pliku
+
         sf.write(output_path, noisy_audio, samplerate)
+
+    def g711_attack(self, input_path, file_name, law='mu', target_fs=8000):
+        """
+        Symuluje przejście przez kodek G.711.
+        - law: 'mu' / 'u' / 'ulaw' -> mu-law (u-law)
+               'a' / 'alaw' -> a-law
+        - target_fs: docelowa częstotliwość dla kodeka (domyślnie 8000 Hz)
+        Zwraca ścieżkę zapisanego pliku.
+        """
+        try:
+            full_path = os.path.join(input_path, file_name)
+            data, fs = sf.read(full_path)  # data: float lub int, shape (N,) lub (N, C)
+            orig_fs = fs
+
+            def _resample_1d(arr, src_fs, dst_fs):
+                if src_fs == dst_fs:
+                    return arr.astype(numpy.int16, copy=False)
+
+                # redukcja ułamka src_fs/dst_fs do małych liczb całkowitych
+                # np. 44100 -> 8000
+                from math import gcd
+                g = gcd(int(src_fs), int(dst_fs))
+                up = int(dst_fs // g)
+                down = int(src_fs // g)
+
+                resampled = resample_poly(arr.astype(numpy.float64), up, down)
+
+                return numpy.clip(numpy.round(resampled), -32768, 32767).astype(numpy.int16)
+
+            if data.dtype.kind == 'f':
+                data_int = (data * 32767.0).round().astype(numpy.int16)
+            else:
+                data_int = data.astype(numpy.int16)
+
+            if data_int.ndim == 1:
+                channels = 1
+                channel_arrays = [data_int]
+            else:
+                channels = data_int.shape[1]
+                channel_arrays = [data_int[:, ch].astype(numpy.int16) for ch in range(channels)]
+
+            # Resample to target_fs per channel
+            if orig_fs != target_fs:
+                channel_rs = [_resample_1d(ch_arr, orig_fs, target_fs) for ch_arr in channel_arrays]
+            else:
+                channel_rs = channel_arrays
+
+            # Interleave channels into bytes for audioop
+            if channels == 1:
+                interleaved_bytes = channel_rs[0].tobytes()
+            else:
+                # stack columns interleaved: create int16 interleaved array
+                stacked = numpy.stack(channel_rs, axis=1)
+                interleaved_bytes = stacked.tobytes()
+
+            # Apply G.711 encoding and decoding via audioop
+            if law in ('mu', 'u', 'ulaw'):
+                coded = audioop.lin2ulaw(interleaved_bytes, 2)
+                recovered_bytes = audioop.ulaw2lin(coded, 2)
+                suffix = 'ulaw'
+            else:
+                coded = audioop.lin2alaw(interleaved_bytes, 2)
+                recovered_bytes = audioop.alaw2lin(coded, 2)
+                suffix = 'alaw'
+
+            recovered = numpy.frombuffer(recovered_bytes, dtype=numpy.int16)
+
+            # De-interleave back to channels
+            if channels == 1:
+                recovered_arr = recovered
+            else:
+                recovered_arr = recovered.reshape(-1, channels)
+
+            # If we resampled to target_fs, resample back to original fs
+            if orig_fs != target_fs:
+                if channels == 1:
+                    back = _resample_1d(recovered_arr, target_fs, orig_fs)
+                    final = back
+                else:
+                    ch_back = [_resample_1d(recovered_arr[:, ch], target_fs, orig_fs) for ch in range(channels)]
+                    # Align lengths (trim to min)
+                    minlen = min(len(c) for c in ch_back)
+                    ch_back = [c[:minlen] for c in ch_back]
+                    final = numpy.stack(ch_back, axis=1)
+            else:
+                final = recovered_arr
+
+            output_filename = f"g711_{suffix}_attacked_" + file_name
+            output_path = os.path.join(input_path, output_filename)
+
+            # Save final signal (int16) with original sampling rate
+            sf.write(output_path, final, orig_fs)
+
+            if self.logger:
+                self.logger.info(f"G.711 ({suffix}) attack saved: {output_filename}")
+            return output_path
+
+        except Exception as e:
+            if self.logger:
+                self.logger.exception(f"Error during g711_attack on {file_name}: {e}")
+            raise
 
     def add_gaussian_noise_with_target_snr(self, input_path, file_name, target_snr_db=20):
         """
@@ -34,8 +133,8 @@ class Attacks:
         self.logger.debug(f"Adding Gaussian noise with target SNR: {target_snr_db} dB to {file_name}")
 
         # Wczytaj dane
-        samplerate, data = wavfile.read(os.path.join(input_path, file_name))
-        
+        data, samplerate = sf.read(os.path.join(input_path, file_name))
+
         # Konwersja na float64
         data = data.astype(numpy.float64)
 
@@ -195,6 +294,56 @@ class Attacks:
         output_file = f"jitter_{jitter_strength}_" + file_name
         sf.write(os.path.join(input_path, output_file), jittered_data, samplerate)
 
+    def packet_loss_attack(self, input_path, file_name, frame_ms=20, loss_rate=0.1, replace_with='zero'):
+        """
+        Symuluje utratę pakietów (packet loss) przez usunięcie (lub zastąpienie) losowych ramek o długości frame_ms milisekund.
+        - loss_rate: od 0.0 do 1.0 (np. 0.1 = 10% ramek wyciętych)
+        - replace_with: 'zero' lub 'noise' (zastąpienie ramki ciszą lub białym szumem)
+        Zwraca ścieżkę zapisanego pliku.
+        """
+        try:
+            full_path = os.path.join(input_path, file_name)
+            data, fs = sf.read(full_path)
+
+            # Pracujemy na 2D tablicy kanałów dla wygody
+            was_mono = False
+            if data.ndim == 1:
+                was_mono = True
+                data = data[:, numpy.newaxis]
+
+            frame_len = int((frame_ms / 1000.0) * fs)
+            if frame_len < 1:
+                frame_len = 1
+
+            n_frames = int(numpy.ceil(len(data) / frame_len))
+            out = data.copy()
+
+            for i in range(n_frames):
+                if numpy.random.rand() < loss_rate:
+                    start = i * frame_len
+                    end = min(start + frame_len, len(data))
+                    if replace_with == 'zero':
+                        out[start:end, :] = 0
+                    else:
+                        # white noise scaled to signal std (per channel)
+                        for ch in range(out.shape[1]):
+                            sigma = numpy.std(data[:, ch]) if numpy.std(data[:, ch]) > 0 else 1.0
+                            out[start:end, ch] = numpy.random.normal(0, sigma * 0.1, size=(end - start))
+
+            final = out[:, 0] if was_mono else out
+
+            output_file = os.path.join(input_path, f"packetloss_{int(loss_rate*100)}_{file_name}")
+            sf.write(output_file, final, fs)
+
+            if self.logger:
+                self.logger.info(f"Packet loss attack saved: {output_file}")
+            return output_file
+
+        except Exception as e:
+            if self.logger:
+                self.logger.exception(f"Error during packet_loss_attack on {file_name}: {e}")
+            raise
+
     def resample_attack(self, input_path, file_name, factor=2):
         """
         Atak przez zmianę częstotliwości próbkowania (downsampling i upsampling).
@@ -245,10 +394,8 @@ class Attacks:
 
         data, samplerate = sf.read(os.path.join(input_path, file_name))
 
-        # Skalowanie amplitudy
         scaled = data * threshold
 
-        # Zapobiegamy przekroczeniu zakresu [-1.0, 1.0] przy wzmocnieniu
         scaled = numpy.clip(scaled, -1.0, 1.0)
 
         output_file = f"scaled_{int(threshold * 100)}_" + file_name
@@ -283,3 +430,17 @@ class Attacks:
         if test_to_perform['CLIPPED']:
             for clipping_lvl in [0.7, 1.3]:
                 self.clipping_attack(method_stegobjects_directory, test_name + '.wav', threshold=clipping_lvl)
+        if test_to_perform.get('PACKET_LOSS'):
+            try:
+                # domyślnie 20 ms ramki, 10% strat
+                self.packet_loss_attack(method_stegobjects_directory, test_name + '.wav', frame_ms=20, loss_rate=0.1, replace_with='zero')
+            except Exception as e:
+                if self.logger:
+                    self.logger.error(f"Error performing PACKET_LOSS attack on {test_name}: {e}")
+        if test_to_perform.get('G711'):
+            try:
+                self.g711_attack(method_stegobjects_directory, test_name + '.wav', law='mu', target_fs=8000)
+                self.g711_attack(method_stegobjects_directory, test_name + '.wav', law='a', target_fs=8000)
+            except Exception as e:
+                if self.logger:
+                    self.logger.error(f"Error performing G.711 attack on {test_name}: {e}")

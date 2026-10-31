@@ -13,6 +13,10 @@ soundfile
 pandas
 tabulate
 colorama
-logging
 joblib
+tqdm
+scikit-learn
+seaborn
 matplotlib
+webrtcvad-wheels
+librosa

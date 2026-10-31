@@ -3,6 +3,9 @@ import numpy as np
 from scipy.io import wavfile
 from scipy.signal.windows import kaiser
 
+import soundfile as sf
+from pydub import AudioSegment
+
 from lib.Carrier import Carrier
 from lib.Secret import Secret
 
@@ -24,9 +27,10 @@ class Tools:
 
     def __init__(self, log_level=logging.DEBUG):
         self.current_working_directory = os.getcwd()
+        self.results_root = os.path.join(os.path.expanduser('~'), 'Results')
 
         self.create_results_directory()
-        self.archive_previous_tests(results_root='Results', archive_folder='Archive')
+        self.archive_previous_tests(results_root=self.results_root, archive_folder='Archive')
         self.current_test_directory, self.test_id = self.create_current_test_directory()
         self.logger = Logger(log_dir = self.current_test_directory, log_name='test_log_' + datetime.now().strftime("%Y-%m-%d_%H-%M-%S") + '.log', log_level=log_level).get_logger()
 
@@ -39,12 +43,15 @@ class Tools:
     def get_test_id(self):
         return self.test_id
 
+    def get_results_root(self):
+        return self.results_root
+
     def generate_random_id(self, length=4):
         return ''.join(random.choices(string.ascii_uppercase + string.digits, k=length))
     
     def create_current_test_directory(self):
         test_id = self.generate_random_id(length=7)   
-        current_test_directory = os.path.join(self.current_working_directory, 'Results', datetime.now().strftime("%Y-%m-%d_%H-%M-%S") + f'_{test_id}')
+        current_test_directory = os.path.join(self.results_root, datetime.now().strftime("%Y-%m-%d_%H-%M-%S") + f'_{test_id}')
         os.makedirs(current_test_directory)
         return current_test_directory, test_id
 
@@ -106,19 +113,50 @@ class Tools:
         try:
             if not os.path.isfile(filepath):
                 raise FileNotFoundError(f"Plik {filepath} nie istnieje.")
-            fs, data = wavfile.read(filepath)
-            data_signed_int16 = data.astype(np.int16)
-            data_unsigned_int16 = np.asarray(data.astype(np.int32) + 2**15, dtype=np.uint16)
+
+            ext = os.path.splitext(filepath)[1].lower()
+
+            # Najpierw spróbuj wczytać przez soundfile (obsługuje WAV, FLAC i inne)
+            try:
+                data, fs = sf.read(filepath, always_2d=False)
+                loaded_with = 'soundfile'
+            except Exception:
+                # Fallback - użyj pydub (przydatne dla mp3 i innych formatów przez ffmpeg)
+                audio = AudioSegment.from_file(filepath)
+                fs = audio.frame_rate
+                samples = audio.get_array_of_samples()
+                data = np.array(samples)
+                if audio.channels > 1:
+                    data = data.reshape((-1, audio.channels))
+                loaded_with = 'pydub'
+
+            # Jeśli wielokanałowe - zredukuj do mono przez średnią (można zmienić jeśli potrzeba)
+            if isinstance(data, np.ndarray) and getattr(data, 'ndim', 1) == 2:
+                data = data.mean(axis=1)
+
+            # Jeśli dane są float w [-1,1] - przeskaluj do int16
+            if np.issubdtype(getattr(data, 'dtype', None), np.floating):
+                data_int16 = np.int16(np.clip(data, -1.0, 1.0) * 32767)
+            else:
+                data_int16 = data.astype(np.int16)
+
+            data_unsigned_int16 = np.asarray(data_int16.astype(np.int32) + 2**15, dtype=np.uint16)
+
             audio_object = {
-                'content_signed_int16':      data_signed_int16,
+                'content_signed_int16':      data_int16,
                 'content_unsigned_int16':    data_unsigned_int16,
                 'fs':                        fs,
                 'filepath':                  filepath,
-                'filename':                  os.path.basename(filepath)
+                'filename':                  os.path.basename(filepath),
+                'loaded_with':               loaded_with
             }
             return audio_object
         except Exception as e:
-            self.logger.exception(f"Error loading audio file {filepath}")
+            # loguj i przekaż dalej
+            try:
+                self.logger.exception(f"Error loading audio file {filepath}")
+            except Exception:
+                pass
             raise
 
     def save_audio_file(self, path, audio_object):
@@ -141,9 +179,15 @@ class Tools:
 
     def list_files_in_carrier_directory(self):
         try:
-            current_directory = os.getcwd()
-            current_directory += '/Carriers/'
-            files = [{'path' : current_directory + '/' + f, 'filename': os.path.splitext(f)[0]} for f in os.listdir(current_directory) if os.path.isfile(os.path.join(current_directory, f))]
+            current_directory = os.path.join(os.getcwd(), 'Carriers')
+            exts = {'.wav', '.flac', '.mp3', '.ogg', '.m4a'}
+            files = []
+            for f in os.listdir(current_directory):
+                path = os.path.join(current_directory, f)
+                if os.path.isfile(path):
+                    ext = os.path.splitext(f)[1].lower()
+                    if ext in exts:
+                        files.append({'path': path, 'filename': os.path.splitext(f)[0]})
             return files
         except Exception as e:
             self.logger.exception("Error listing files in Carriers/")
@@ -177,7 +221,9 @@ class Tools:
             files = self.list_files_in_carrier_directory()
             for file in files:
                 if file['filename'] == filename:
-                    return Carrier({'name': file['filename'], 'path' : file['path']})
+                    # Wczytaj audio uniwersalną metodą i przekaż gotowe dane do Carrier
+                    audio_obj = self.load_audio_file(file['path'])
+                    return Carrier({'name': file['filename'], 'fs': audio_obj['fs'], 'data_signed_int16': audio_obj['content_signed_int16']})
             raise FileNotFoundError(f"Carrier file {filename} not found in Carriers/ directory.")
         except Exception as e:
             self.logger.exception(f"Error loading carrier {filename}")
@@ -205,7 +251,7 @@ class Tools:
         secrets = []
         
         if(arguments['type'] == 'TXT'):
-            secret = Secret({'name': self.tools.generate_random_filename(), 'path' : arguments['path'], 'type' : arguments['type'], 'size' : arguments['size']})
+            secret = Secret({'name': self.generate_random_id(), 'path' : arguments['path'], 'type' : arguments['type'], 'size' : arguments['size']})
             secrets.append(secret)
         elif(arguments['type'] == 'IMAGE'):
             files=self.list_files_in_secrets_directory()
@@ -269,9 +315,9 @@ class Tools:
 
     def create_results_directory(self):
         try:
-            os.makedirs('Results', exist_ok=True)
-            if not os.path.exists('Results'):
-                os.makedirs('Results')
+            os.makedirs(self.results_root, exist_ok=True)
+            if not os.path.exists(self.results_root):
+                os.makedirs(self.results_root)
         except Exception as e:
             self.logger.exception("Error creating Results directory")
             raise

@@ -1,7 +1,7 @@
 import numpy as np
 from scipy.fftpack import dct, idct
-import random
-from joblib import Parallel, delayed  # <--- Dodany import
+# import random
+# from joblib import Parallel, delayed  # <--- wcześniejsza równoległość
 
 from lib.Method import MULTI_LEVEL_METHOD
 
@@ -16,21 +16,22 @@ class DIFFERENTIAL_SVD_PEJAS_CIEROCKI_MULTI_PC_V3(MULTI_LEVEL_METHOD):
         self.normal_name = 'PC [v3]'
         self.random_levels = []
         
-        # Konfiguracja równoległości: -1 oznacza użycie wszystkich rdzeni CPU
-        self.n_jobs = -1 
+        self.n_jobs = -1
 
     def calculate_capacity(self, carrier):
         return len(carrier)
 
-    # --- NOWA METODA POMOCNICZA (Logika pojedynczego poziomu) ---
-    def _calculate_score_for_level(self, level, evn_dct_coeffs, odd_dct_coeffs, frame_dct, idx_low, idx_high, frame, bit):
+    def _calculate_score_for_level(self, level, levels_evn_full, levels_odd_full, frame_dct, idx_low, idx_high, frame, bit):
         """
         Oblicza wynik (robustness_score) dla danego poziomu.
-        Zwraca krotkę z wynikami, aby można je było porównać w głównym wątku.
+        Po przebudowie metoda korzysta z wcześniej policzonej dekompozycji do
+        najgłębszego poziomu i bierze tylko prefiks [1..level] z tej samej struktury.
         """
-        # 1. Dekompozycja
-        levels_evn = self.MultiLevelSVDProcessor.multi_level_decompose(evn_dct_coeffs, level)
-        levels_odd = self.MultiLevelSVDProcessor.multi_level_decompose(odd_dct_coeffs, level)
+        # OLD:
+        # levels_evn = self.MultiLevelSVDProcessor.multi_level_decompose(evn_dct_coeffs, level)
+        # levels_odd = self.MultiLevelSVDProcessor.multi_level_decompose(odd_dct_coeffs, level)
+        levels_evn = [(U, s.copy(), VT) for U, s, VT in levels_evn_full[:level]]
+        levels_odd = [(U, s.copy(), VT) for U, s, VT in levels_odd_full[:level]]
 
         new_levels_evn = []
         new_levels_odd = []
@@ -91,23 +92,23 @@ class DIFFERENTIAL_SVD_PEJAS_CIEROCKI_MULTI_PC_V3(MULTI_LEVEL_METHOD):
             new_levels_evn.append((U_evn, s_evn, VT_evn))
             new_levels_odd.append((U_odd, s_odd, VT_odd))
 
-        # 3. Rekonstrukcja
         rec_evn = self.MultiLevelSVDProcessor.reconstruct_from_levels(new_levels_evn)
         rec_odd = self.MultiLevelSVDProcessor.reconstruct_from_levels(new_levels_odd)
 
-        coeffs = []
-        # Optymalizacja pętli for coeffs (list comprehension jest szybsze)
-        # Zakładamy, że filtered_dct_coeffs ma długość len(rec_evn) + len(rec_odd)
+        # OLD:
+        # coeffs = []
+        # total_len = len(rec_evn) + len(rec_odd)
+        # for k in range(total_len):
+        #     coeffs.append(rec_evn[k // 2] if k % 2 == 0 else rec_odd[k // 2])
         total_len = len(rec_evn) + len(rec_odd)
-        for k in range(total_len):
-            coeffs.append(rec_evn[k // 2] if k % 2 == 0 else rec_odd[k // 2])
-        coeffs = np.array(coeffs)
+        coeffs = np.empty(total_len, dtype=rec_evn.dtype)
+        coeffs[::2] = rec_evn
+        coeffs[1::2] = rec_odd
 
         full_dct = frame_dct.copy()
         full_dct[idx_low:idx_high] = coeffs
         reconstructed = idct(full_dct, norm='ortho')
 
-        # 4. Obliczenie wyniku
         diff = np.mean(np.abs(reconstructed - frame))
         
         if bit == 0:
@@ -124,22 +125,29 @@ class DIFFERENTIAL_SVD_PEJAS_CIEROCKI_MULTI_PC_V3(MULTI_LEVEL_METHOD):
         evn_dct_coeffs = filtered_dct_coeffs[::2]
         odd_dct_coeffs = filtered_dct_coeffs[1::2]
 
-        # --- SEKCJA ZRÓWNOLEGLONA ---
-        # Uruchamiamy obliczenia dla wszystkich poziomów jednocześnie
-        results = Parallel(n_jobs=self.n_jobs)(
-            delayed(self._calculate_score_for_level)(
-                level, evn_dct_coeffs, odd_dct_coeffs, frame_dct, idx_low, idx_high, frame, bit
-            ) for level in range(1, self.levels + 1)
-        )
+        # OLD:
+        # results = Parallel(n_jobs=self.n_jobs)(
+        #     delayed(self._calculate_score_for_level)(
+        #         level, evn_dct_coeffs, odd_dct_coeffs, frame_dct, idx_low, idx_high, frame, bit
+        #     ) for level in range(1, self.levels + 1)
+        # )
+        # Nowa wersja: jedna dekompozycja do najgłębszego poziomu, a potem
+        # testowanie kandydatów na tej samej strukturze.
+        levels_evn_full = self.MultiLevelSVDProcessor.multi_level_decompose(evn_dct_coeffs, self.levels)
+        levels_odd_full = self.MultiLevelSVDProcessor.multi_level_decompose(odd_dct_coeffs, self.levels)
 
-        # Znajdujemy wynik z najwyższym robustness_score
-        # results to lista krotek: (score, level, coeffs, stats)
+        results = []
+        for level in range(1, self.levels + 1):
+            results.append(
+                self._calculate_score_for_level(
+                    level, levels_evn_full, levels_odd_full, frame_dct, idx_low, idx_high, frame, bit
+                )
+            )
+
         best_result = max(results, key=lambda x: x[0])
         
         best_score, best_level, best_coefficients, best_stats = best_result
 
-        # --- AKTUALIZACJA STANU OBIEKTU ---
-        # Wykonujemy to dopiero po znalezieniu najlepszego kandydata
         self.s_even.append(best_stats['old_s_even'])
         self.s_odd.append(best_stats['old_s_odd'])
         self.new_s_even.append(best_stats['new_s_even'])
@@ -149,24 +157,35 @@ class DIFFERENTIAL_SVD_PEJAS_CIEROCKI_MULTI_PC_V3(MULTI_LEVEL_METHOD):
         
         self.random_levels.append(best_level)
 
-        # Finalna rekonstrukcja ramki
         frame_dct[idx_low:idx_high] = best_coefficients
         embedded_frame = idct(frame_dct, norm='ortho')
         
         return embedded_frame
 
     def extract_from_frame(self, frame, fs):
-        # ... (bez zmian)
         frame_dct = dct(frame, norm='ortho')
         filtered_coeffs, k_low, k_high = self.filter_dct_coeffs(frame_dct, fs, self.FREQ_L, self.FREQ_H)
 
         evn_dct_coeffs = filtered_coeffs[::2]
         odd_dct_coeffs = filtered_coeffs[1::2]
 
-        if len(self.random_levels) != 0:
-            level = self.random_levels.pop(0)
-        else:
+        # Use a stable read-index instead of popping from the shared list.
+        # This allows multiple extractions (e.g. original + attacked files) without
+        # destroying the stored levels. If the index exceeds the stored list,
+        # wrap it back to 0 to allow repeated deterministic extractions.
+        if len(self.random_levels) == 0:
             raise ValueError("Brak zapisanego poziomu do ekstrakcji.")
+
+        if not hasattr(self, '_extract_idx'):
+            # initialize on first extraction
+            self._extract_idx = 0
+
+        # wrap-around to allow repeated extractions using same sequence
+        if self._extract_idx >= len(self.random_levels):
+            self._extract_idx = 0
+
+        level = self.random_levels[self._extract_idx]
+        self._extract_idx += 1
 
         levels_evn = self.MultiLevelSVDProcessor.multi_level_decompose(evn_dct_coeffs, level)
         levels_odd = self.MultiLevelSVDProcessor.multi_level_decompose(odd_dct_coeffs, level)
