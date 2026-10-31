@@ -19,7 +19,7 @@ def make(name='DIFFERENTIAL_SVD_XUE', logger=None, **overrides):
     {'FREQ_L': 3000, 'FREQ_H': 2000}, {'FREQ_L': -5},
     {'FRAME_LENGTH': 0}, {'HOP_DURATION_MS': 10},           # hop != frame for a DCT method
     {'TYPE_OF_VAD': 'energy'}, {'WHERE_TO_HIDE': 'UNVOICED'},
-    {'ADAPTIVE': 'yes'}, {'HANKEL_ROWS': 1},
+    {'ADAPTIVE': 'yes'}, {'HANKEL_ROWS': 1}, {'LEGACY': 'yes'}, {'LABEL': ''}, {'LABEL': 3},
 ])
 def test_invalid_parameters_are_rejected(overrides):
     with pytest.raises(ValueError):
@@ -141,3 +141,15 @@ def test_set_carrier_discards_previous_secret(carrier, carrier_b, logger):
 def test_unknown_method_name():
     with pytest.raises(KeyError):
         get_method_class('NOPE')
+
+
+def test_legacy_only_where_a_previous_rule_exists():
+    with pytest.raises(ValueError, match='LEGACY'):
+        make('MDCT_SVD_WEN', FRAME_LENGTH=40, HOP_DURATION_MS=20, LEGACY=True)
+    assert make('DIFFERENTIAL_SVD_XUE', LEGACY=True).legacy
+
+
+def test_label_overrides_the_display_name():
+    method = make('DIFFERENTIAL_SVD_XUE', LABEL='Xue et. al. (orig.)')
+    assert method.normal_name == 'Xue et. al. (orig.)'
+    assert method.name.startswith('DIFFERENTIAL_SVD_XUE_')

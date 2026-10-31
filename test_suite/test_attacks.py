@@ -64,3 +64,41 @@ def test_failing_attack_does_not_stop_the_others(stego, monkeypatch):
     config = dict(no_attacks(), MP3=True, NOISE=True)
     written = Attacks(seed=0).perform_attacks(directory, 'test', config)
     assert [os.path.basename(p) for p in written] == ['noised_30dB_test.wav']
+
+
+def _tone(freq, seconds=0.5, amplitude=8000):
+    t = np.arange(int(FS * seconds)) / FS
+    return np.rint(amplitude * np.sin(2 * np.pi * freq * t)).astype(np.int16)
+
+
+def test_requantization_to_8_bits(tmp_path):
+    write_wav(str(tmp_path / 'x.wav'), synthetic_speech(seconds=0.5))
+    path = Attacks().requantize_audio(str(tmp_path), 'x.wav', bit_depth=8)
+    data, _ = read_audio_as_int16(path)
+    assert path.endswith('requantized_8bit_x.wav')
+    assert np.all((data.astype(int) % 256 == 0) | (data == 32767))
+
+
+def test_resampling_uses_an_anti_aliasing_filter(tmp_path):
+    """16 kHz -> 8 kHz -> 16 kHz: a 2 kHz tone survives, a 6 kHz tone is removed (not aliased to 2 kHz)."""
+    analysis = Analysis(plots=False)
+    for freq, survives in ((2000, True), (6000, False)):
+        write_wav(str(tmp_path / f'{freq}.wav'), _tone(freq))
+        data, _ = read_audio_as_int16(Attacks().resample_attack(str(tmp_path), f'{freq}.wav', 2))
+        clean = _tone(freq)
+        energy_ratio = np.sum(data[400:-400].astype(float) ** 2) / np.sum(clean[400:-400].astype(float) ** 2)
+        if survives:
+            assert analysis.calculate_snr(clean[400:-400], data[400:-400]) > 30
+        else:
+            assert energy_ratio < 1e-3
+
+
+def test_attack_parameters(tmp_path, monkeypatch):
+    with pytest.raises(ValueError, match='Unknown attack parameters'):
+        Attacks(params={'NOISE_DB': 20})
+    write_wav(str(tmp_path / 'test.wav'), synthetic_speech(seconds=0.5))
+    attacks = Attacks(seed=0, params={'REQUANTIZE_BITS': 10, 'NOISE_SNR_DB': 20})
+    written = attacks.perform_attacks(str(tmp_path), 'test', dict(no_attacks(), REQUANTIZE=True, NOISE=True))
+    assert sorted(os.path.basename(p) for p in written) == ['noised_20dB_test.wav', 'requantized_10bit_test.wav']
+    with pytest.raises(ValueError, match='Nyquist'):
+        Attacks().low_pass_filter(str(tmp_path), 'test.wav', cutoff=9000)

@@ -30,18 +30,30 @@ METHOD_CASES = [
     ('DIFFERENTIAL_SVD_PEJAS_CIEROCKI_MULTI_V1', dict(BASE), 0.0),
     ('DIFFERENTIAL_SVD_PEJAS_CIEROCKI_MULTI_V2', dict(BASE, ADAPTIVE=True), 0.0),
     ('DIFFERENTIAL_SVD_PEJAS_CIEROCKI_MULTI_PC_V1', dict(BASE, ADAPTIVE=True), 0.0),
-    # non-adaptive PC v1 loses bits by design (fixed shift may be too small)
-    ('DIFFERENTIAL_SVD_PEJAS_CIEROCKI_MULTI_PC_V1', dict(BASE, ADAPTIVE=False), 15.0),
+    ('DIFFERENTIAL_SVD_PEJAS_CIEROCKI_MULTI_PC_V1', dict(BASE, ADAPTIVE=False), 0.0),
     ('DIFFERENTIAL_SVD_PEJAS_CIEROCKI_MULTI_PC_V2', dict(BASE, ADAPTIVE=True), 0.0),
-    ('DIFFERENTIAL_SVD_PEJAS_CIEROCKI_MULTI_PC_V3', dict(BASE, ADAPTIVE=True, LEVELS=4), 3.0),
-    ('DIFFERENTIAL_SVD_PEJAS_CIEROCKI_MULTI_PC_V3_BASELINE', dict(BASE, ADAPTIVE=True, LEVELS=3), 3.0),
-    ('DIFFERENTIAL_SVD_PEJAS_CIEROCKI_MULTI_PC_V3_OPTIMIZED', dict(BASE, ADAPTIVE=True, LEVELS=3), 3.0),
+    # PC v3: the level is chosen from the intended singular values; Hankel
+    # re-projection at deeper levels leaves a small error floor
+    ('DIFFERENTIAL_SVD_PEJAS_CIEROCKI_MULTI_PC_V3', dict(BASE, ADAPTIVE=True, LEVELS=4), 5.0),
+    ('DIFFERENTIAL_SVD_PEJAS_CIEROCKI_MULTI_PC_V3_BASELINE', dict(BASE, ADAPTIVE=True, LEVELS=3), 5.0),
+    ('DIFFERENTIAL_SVD_PEJAS_CIEROCKI_MULTI_PC_V3_OPTIMIZED', dict(BASE, ADAPTIVE=True, LEVELS=3), 5.0),
+    # previous rules (LEGACY): non-adaptive PC v1 loses bits by design
+    ('DIFFERENTIAL_SVD_PEJAS_CIEROCKI_MULTI_PC_V1', dict(BASE, ADAPTIVE=False, LEGACY=True), 15.0),
+    ('DIFFERENTIAL_SVD_PEJAS_CIEROCKI_MULTI_V1', dict(BASE, LEGACY=True), 5.0),
+    ('DIFFERENTIAL_SVD_PEJAS_CIEROCKI_MULTI_PC_V3', dict(BASE, ADAPTIVE=True, LEVELS=3, LEGACY=True), 5.0),
+    ('DIFFERENTIAL_SVD_XUE', dict(BASE, LEGACY=True), 5.0),
+    # Xue et al. as published: alpha = beta = 0.2, every frame (no VAD)
+    ('DIFFERENTIAL_SVD_XUE', dict(BASE, ALPHA=0.2, BETA=0.2, WHERE_TO_HIDE='ALL'), 2.0),
+    # Wen et al. as published: alpha = 0.61, 100 Hz - 3 kHz
+    ('MDCT_SVD_WEN', dict(BASE, FRAME_LENGTH=40, HOP_DURATION_MS=20, ALPHA=0.61, FREQ_L=100, FREQ_H=3000), 0.0),
 ]
 
 
 def method_case_id(case):
     name, params, _ = case
-    return f"{name}-A{params['ADAPTIVE']}-L{params['LEVELS']}"
+    extra = ''.join(f"-{k}{params[k]}" for k in ('LEGACY', 'WHERE_TO_HIDE', 'FREQ_L', 'ALPHA') if k in params
+                    and params[k] != BASE.get(k, False))
+    return f"{name}-A{params['ADAPTIVE']}-L{params['LEVELS']}{extra}"
 
 
 def synthetic_speech(fs=FS, seconds=3.0, seed=0, amplitude=12000):

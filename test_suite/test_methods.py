@@ -10,7 +10,6 @@ End-to-end checks of every steganographic method:
 """
 
 import json
-import os
 
 import numpy as np
 import pytest
@@ -22,6 +21,17 @@ from lib.Secret import Secret
 from lib.Tools import Tools
 
 from conftest import METHOD_CASES, method_case_id
+
+
+def case(name, **match):
+    """First METHOD_CASES entry for ``name`` whose parameters contain ``match``."""
+    for case_name, params, max_ber in METHOD_CASES:
+        if case_name == name and all(params.get(k) == v for k, v in match.items()):
+            return case_name, params, max_ber
+    raise LookupError(name)
+
+
+PC_V3 = 'DIFFERENTIAL_SVD_PEJAS_CIEROCKI_MULTI_PC_V3'
 
 
 def embed(name, params, carrier, logger, seed=11):
@@ -124,14 +134,14 @@ def test_one_object_for_many_carriers(case, carrier, carrier_b, logger):
 
 
 def test_embedding_is_deterministic(carrier, logger):
-    name, params, _ = METHOD_CASES[-3]  # PC v3
+    name, params, _ = case(PC_V3, LEGACY=None)
     _, _, a = embed(name, params, carrier, logger)
     _, _, b = embed(name, params, carrier, logger)
     assert np.array_equal(a, b)
 
 
 def test_pc_v3_variants_produce_identical_stegobjects(carrier, logger):
-    params = dict(METHOD_CASES[-1][1])
+    params = dict(case('DIFFERENTIAL_SVD_PEJAS_CIEROCKI_MULTI_PC_V3_OPTIMIZED')[1])
     stegos = [embed(name, params, carrier, logger)[2] for name in (
         'DIFFERENTIAL_SVD_PEJAS_CIEROCKI_MULTI_PC_V3',
         'DIFFERENTIAL_SVD_PEJAS_CIEROCKI_MULTI_PC_V3_BASELINE',
@@ -140,7 +150,7 @@ def test_pc_v3_variants_produce_identical_stegobjects(carrier, logger):
 
 
 def test_pc_v3_key_contains_one_level_per_bit(carrier, logger):
-    name, params, _ = METHOD_CASES[-3]
+    name, params, _ = case(PC_V3, LEGACY=None)
     method, secret, _ = embed(name, params, carrier, logger)
     levels = method.get_extraction_key()['levels']
     assert len(levels) == len(secret.binary_data)
@@ -148,7 +158,7 @@ def test_pc_v3_key_contains_one_level_per_bit(carrier, logger):
 
 
 def test_truncated_stegobject_reports_missing_bits(carrier, logger):
-    name, params, _ = METHOD_CASES[1]  # Xue
+    name, params, _ = case('DIFFERENTIAL_SVD_XUE', LEGACY=None)
     method, secret, stego = embed(name, params, carrier, logger)
     extracted = method.extraction(stego[:len(stego) // 2])
     assert 0 < len(extracted) < len(secret.binary_data)
@@ -166,7 +176,7 @@ def test_xue_bit_one_reaches_threshold():
 
 
 def test_wen_uses_requested_band(carrier, logger):
-    name, params, _ = METHOD_CASES[0]
+    name, params, _ = case('MDCT_SVD_WEN', ALPHA=0.7)
     method = create_method(name, params, logger)
     method.set_carrier(carrier)
     frame = method.frame_samples

@@ -56,3 +56,10 @@ def test_load_results_reads_directories(tmp_path):
     results_frame().to_csv(run / 'test_analysis_group_1.csv', index=False)  # must be ignored
     df = Plots.load_results(str(tmp_path))
     assert len(df) == len(results_frame())
+
+
+def test_variants_share_the_colour_of_their_method():
+    styles, order = Plots.method_styles(['Xue et. al.', 'Xue et. al. (orig.)', 'PC [v1] (legacy)', 'PC [v1]'])
+    assert order == ['PC [v1]', 'PC [v1] (legacy)', 'Xue et. al.', 'Xue et. al. (orig.)']
+    assert styles['Xue et. al. (orig.)']['color'] == styles['Xue et. al.']['color']
+    assert styles['Xue et. al. (orig.)']['linestyle'] == '--' and styles['PC [v1] (legacy)']['linestyle'] == ':'

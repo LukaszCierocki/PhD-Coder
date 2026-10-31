@@ -101,3 +101,26 @@ def test_cli_plots_from(workspace, tmp_path):
     out = tmp_path / 'charts'
     assert coder.main(['--plots-from', result['test_dir'], '--out', str(out), '--metrics', 'BER [%]', 'PESQ']) == 0
     assert (out / 'ber_vs_capacity.png').exists() and (out / 'pesq_vs_capacity.png').exists()
+
+
+def test_legacy_and_attack_flags(workspace):
+    carriers_dir, results_root = workspace
+    settings = coder.settings_from_args(coder.parse_args(['--test', 'TINY', '--legacy', '--attacks', 'none',
+                                                          '--seed', '4']))
+    result = coder.run_and_save_test(settings, results_root=results_root, carriers_dir=carriers_dir)
+    df = pd.read_csv(result['csv'])
+    assert set(df['TEST']) == {'NONE'}                                 # NOISE of the preset switched off
+    assert set(df['NAME']) == {'Xue et. al. (legacy)', 'PC [v3] (legacy)', 'Wen Et. Al.'}
+    assert df.set_index('NAME').loc['Wen Et. Al.', 'LEGACY'].all() == False   # no legacy variant for Wen
+    with pytest.raises(SystemExit):
+        coder.parse_attacks(['NOPE'])
+
+
+def test_baselines_preset_uses_published_parameters():
+    import logging
+    methods = coder.PRESETS['BASELINES'](logging.getLogger('x'))['methods']
+    assert len(methods) == 2 * len(coder.CAPACITY_SWEEP_BPS)
+    xue = [m for m in methods if m.__class__.__name__ == 'DIFFERENTIAL_SVD_XUE']
+    wen = [m for m in methods if m.__class__.__name__ == 'MDCT_SVD_WEN']
+    assert {(m.alpha, m.where_to_hide, m.normal_name) for m in xue} == {(0.2, 'ALL', 'Xue et. al. (orig.)')}
+    assert {(m.alpha, m.FREQ_L, m.FREQ_H, m.normal_name) for m in wen} == {(0.61, 100, 3000, 'Wen Et. Al. (orig.)')}

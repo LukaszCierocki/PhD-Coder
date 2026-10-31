@@ -27,8 +27,10 @@ def test_snr_and_psnr(analysis):
     x = np.array([1000, -1000, 1000, -1000], dtype=np.int16)
     y = x + np.array([10, -10, 10, -10], dtype=np.int16)
     assert analysis.calculate_snr(x, y) == pytest.approx(40.0)
-    assert analysis.calculate_peak_signal_to_noise_ratio(x, y) == pytest.approx(40.0)
+    # PSNR uses the full-scale peak of 16-bit PCM (A = 32767), not the carrier's peak
+    assert analysis.calculate_peak_signal_to_noise_ratio(x, y) == pytest.approx(10 * math.log10(32767 ** 2 / 100))
     assert math.isinf(analysis.calculate_snr(x, x))
+    assert math.isinf(analysis.calculate_peak_signal_to_noise_ratio(x, x))
 
 
 def test_segmental_snr_is_clamped(analysis):
