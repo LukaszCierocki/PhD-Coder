@@ -45,6 +45,20 @@ Permutation p-value: `(#{stat_perm >= stat_obs} + 1) / (PERM_B + 1)` - with
 p-values are corrected with Benjamini-Hochberg **separately for every metric**
 (q-values).
 
+Chi² (`chi2_homogeneity`) is the two-sample test of homogeneity (2 × K contingency
+table on the raw counts of cover and stegobject). Adjacent bins are merged until every
+expected count is ≥ `CHI2_MIN_EXPECTED` (5). Until 2026-10-31 both Chi² tests compared
+the stegobject with the cover histogram taken as exact expected counts. In the amplitude
+test an empty cover bin had the expected count `EPS_SMOOTH = 1e-12`, so a single stego
+sample above the cover's peak gave χ² ≈ 10¹³ and p = 0: **every method was "detected"
+on every carrier** (amplitude Chi² 100% for all 9 methods in the 50 bps comparison).
+Results of the amplitude and LSB Chi² from earlier runs should not be used.
+
+Cover and stegobject are paired: unmodified samples (e.g. unvoiced frames) are
+identical, so all two-sample tests here are conservative. A detection says that the
+first-order statistics of *this* pair differ. It does not mean that a detector without
+the cover could detect the stegobject. That is what the ML part measures.
+
 Output: `results_stratified.csv` (all tests with `p` and `q`),
 `summary_detection_rate.csv` (share of pairs with `q < 0.05` per method, domain and
 metric), `heatmap_<metric>.png` (-log10 q per pair and domain - the old script plotted

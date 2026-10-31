@@ -45,7 +45,7 @@ import matplotlib.pyplot as plt
 import soundfile as sf
 from scipy import signal as sp_signal
 from scipy import stats
-from scipy.stats import chisquare, ks_2samp
+from scipy.stats import chi2_contingency, ks_2samp
 
 from lib.Carrier import read_audio_as_int16
 from lib.Method import ensure_logger
@@ -81,6 +81,7 @@ DEFAULT_CONFIG = {
     'BINS_AMPLITUDE': 256,
     'BINS_DCT': 128,
     'EPS_SMOOTH': 1e-12,
+    'CHI2_MIN_EXPECTED': 5.0,       # chi-square: adjacent bins merged until every expected count >= this
     'PERM_B': 200,                  # permutations (for publication: 500-1000)
     'FRAME_LEN_DCT': 1024,
     'DCT_BANDS_HZ': [(0.0, 1000.0), (1000.0, 2000.0), (2000.0, 3000.0), (3000.0, 4000.0), (4000.0, 8000.0)],
@@ -245,6 +246,50 @@ def lsb_counts(x):
     return int(np.sum(lsb == 0)), int(np.sum(lsb == 1))
 
 
+def chi2_homogeneity(counts_a, counts_b, min_expected=5.0):
+    """
+    Two-sample chi-square test of homogeneity on raw histogram counts (2 x K
+    contingency table): do both samples come from the same distribution?
+
+    Adjacent bins are merged until every expected count is at least
+    ``min_expected`` (Cochran's rule). Sparse bins - e.g. the extremes of an
+    amplitude histogram, where one stego sample beyond the cover's peak used to
+    meet an expected count of 1e-12 - can therefore not dominate the statistic.
+    Both histograms are treated as samples (the cover is not an exact model).
+    Cover and stegobject are paired (unmodified samples are identical), which
+    makes the test conservative.
+
+    Returns (statistic, p-value); (0.0, 1.0) if fewer than two bins remain.
+    """
+    a = np.asarray(counts_a, dtype=np.float64).ravel()
+    b = np.asarray(counts_b, dtype=np.float64).ravel()
+    if a.shape != b.shape:
+        raise ValueError(f"Histograms differ in length: {a.shape} != {b.shape}.")
+    n_a, n_b = a.sum(), b.sum()
+    if n_a <= 0 or n_b <= 0:
+        return 0.0, 1.0
+
+    # expected count of the smaller sample in a column = column total * min(n_a, n_b) / N
+    need = float(min_expected) * (n_a + n_b) / min(n_a, n_b)
+    cols = []
+    acc = np.zeros(2)
+    for x, y in zip(a, b):
+        acc += (x, y)
+        if acc.sum() >= need:
+            cols.append(acc.copy())
+            acc[:] = 0.0
+    if acc.sum() > 0:
+        if cols:
+            cols[-1] += acc
+        else:
+            cols.append(acc.copy())
+    if len(cols) < 2:
+        return 0.0, 1.0
+
+    stat, p, _, _ = chi2_contingency(np.array(cols).T, correction=False)
+    return float(stat), float(p)
+
+
 def fdr_bh(pvals: List[float]) -> List[float]:
     """Benjamini-Hochberg adjusted p-values (q-values). None/NaN -> treated as 1."""
     p = np.array([v if (v is not None and np.isfinite(v)) else 1.0 for v in pvals], dtype=float)
@@ -294,12 +339,9 @@ def statistical_tests_for_pair(cover, stego, sr, cfg, rng, pair_id):
                      'p': None if p is None else float(p)})
 
     if enable['AMPLITUDE']:
-        h_c, h_s, edges = common_hist(cover, stego, cfg['BINS_AMPLITUDE'], eps)
+        h_c, h_s, edges = common_hist(cover, stego, cfg['BINS_AMPLITUDE'], 0.0)
         if enable['CHISQ']:
-            # chisquare needs equal totals - scale the expected histogram
-            expected = h_c * (h_s.sum() / h_c.sum())
-            stat, p = chisquare(h_s, f_exp=expected)
-            add('Amplitude', 'chi2', stat, p)
+            add('Amplitude', 'chi2', *chi2_homogeneity(h_c, h_s, cfg['CHI2_MIN_EXPECTED']))
         if enable['KS']:
             stat, p = ks_2samp(cover, stego)
             add('Amplitude', 'ks', stat, p)
@@ -337,12 +379,7 @@ def statistical_tests_for_pair(cover, stego, sr, cfg, rng, pair_id):
                 add(domain, 'kl_qp', *perm_p_divergence(band_c, band_s, edges, n_perm, rng, eps, 'KL_QP'))
 
     if enable['LSB']:
-        z_c, o_c = lsb_counts(cover)
-        z_s, o_s = lsb_counts(stego)
-        expected = np.array([z_c + 1, o_c + 1], dtype=float)
-        observed = np.array([z_s + 1, o_s + 1], dtype=float)
-        stat, p = chisquare(observed, f_exp=expected * observed.sum() / expected.sum())
-        add('LSB', 'chi2', stat, p)
+        add('LSB', 'chi2', *chi2_homogeneity(lsb_counts(cover), lsb_counts(stego), cfg['CHI2_MIN_EXPECTED']))
 
     return rows
 

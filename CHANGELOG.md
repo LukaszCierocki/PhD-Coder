@@ -1,5 +1,18 @@
 # Changelog
 
+## 2026-10-31 (3) - steganalysis: Chi² tests
+
+* **Amplitude Chi² detected everything.** The stegobject histogram was compared with
+  the cover histogram + `1e-12` taken as exact expected counts. An empty cover bin (any
+  stego sample beyond the cover's peak - 5-15 bins per pair in the 50 bps comparison)
+  gave χ² ≈ 10¹³, p = 0: 100% detection for every method, including Xue (orig.) with
+  α = 0.2. Now a two-sample test of homogeneity (2 × K contingency table, sparse bins
+  merged until every expected count ≥ 5, `CHI2_MIN_EXPECTED`).
+* **LSB Chi²** treated the cover's 0/1 share as exact (overstated significance); now the
+  same two-sample test.
+* Earlier amplitude / LSB Chi² results should not be used. KS, JS, KL and the ML part
+  did not change.
+
 ## 2026-10-31 (2) - methods checked against the papers
 
 Checked against Xue et al. (IEEE Access 2019), Wen et al. (MTAP 2021) and the PC paper

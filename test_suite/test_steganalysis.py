@@ -34,6 +34,47 @@ def test_divergences():
     assert S.js_divergence(p, np.array([0.9, 0.1])) > 0
 
 
+def test_chi2_homogeneity_is_the_contingency_table_test():
+    from scipy.stats import chi2_contingency
+    a, b = np.array([30, 50, 20]), np.array([25, 45, 40])
+    stat, p = S.chi2_homogeneity(a, b)
+    ref_stat, ref_p, _, _ = chi2_contingency(np.array([a, b]), correction=False)
+    assert stat == pytest.approx(ref_stat)
+    assert p == pytest.approx(ref_p)
+    # sparse bins are merged; nothing left to compare -> no evidence
+    assert S.chi2_homogeneity([3, 0], [2, 1]) == (0.0, 1.0)
+    with pytest.raises(ValueError):
+        S.chi2_homogeneity([1, 2], [1, 2, 3])
+
+
+def test_chi2_ignores_a_sample_beyond_the_cover_peak():
+    # Regression: an empty cover bin had the expected count 1e-12, so one stego sample
+    # above the cover's maximum gave chi2 ~ 1e13 and p = 0 - every method was
+    # "detected" on every carrier.
+    rng = np.random.default_rng(1)
+    cover = np.clip(rng.normal(0, 3000, 64000), -32768, 32767).astype(np.int16)
+    stego = cover.copy()
+    stego[np.argmax(cover)] = int(cover.max()) + 500
+    rows = S.statistical_tests_for_pair(cover, stego, 16000, S.merge_config({'PERM_B': 9}),
+                                        np.random.default_rng(0), 'pair')
+    chi2 = [r for r in rows if r['domain'] == 'Amplitude' and r['metric'] == 'chi2'][0]
+    assert chi2['p'] > 0.5
+    lsb = [r for r in rows if r['domain'] == 'LSB'][0]
+    assert lsb['p'] > 0.5
+
+
+def test_chi2_detects_real_changes():
+    rng = np.random.default_rng(2)
+    cover = np.clip(rng.normal(0, 3000, 64000), -32768, 32767).astype(np.int16)
+    louder = np.clip(cover.astype(np.float64) * 1.2, -32768, 32767).astype(np.int16)
+    edges = S.stable_edges(-20000, 20000, 256)
+    _, p = S.chi2_homogeneity(np.histogram(cover, edges)[0], np.histogram(louder, edges)[0])
+    assert p < 1e-6
+    # LSB plane: all LSBs cleared vs. untouched
+    assert S.chi2_homogeneity(S.lsb_counts(cover), S.lsb_counts(cover & ~1))[1] < 1e-6
+    assert S.chi2_homogeneity(S.lsb_counts(cover), S.lsb_counts(cover))[1] == pytest.approx(1.0)
+
+
 @pytest.fixture
 def pairs(tmp_path):
     """4 carriers, stego = carrier + small noise in a band (detectable by statistics)."""
