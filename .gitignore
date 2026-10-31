@@ -24,6 +24,9 @@ Carriers/*.wav
 carriers_storage/*.wav
 CarriersToTests/*.wav
 
+# Sync-conflict copies (OneDrive)
+*-Lukas-ProArt.py
+
 # Jupyter Notebooks
 *.ipynb_checkpoints
 
@@ -35,7 +38,8 @@ Old/*
 .DS_Store
 Thumbs.db
 
-# Tests
+# Tests (old result folder; the pytest suite lives in test_suite/)
 Tests/*
+.pytest_cache/
 
 tempCodeRunnerFile.py
