@@ -16,8 +16,8 @@ capacity) next to the PNG, so the plotted numbers can be checked or reused.
 
 import glob
 import os
+import re
 
-import matplotlib
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
@@ -43,6 +43,11 @@ EXTRA_MARKERS = ['P', 'X', '*', 'h', 'p', 'H', 'd', '8']
 # Colour-vision-deficiency-safe alternative (validated categorical palette).
 ACCESSIBLE_COLORS = ['#2a78d6', '#eb6834', '#1baf7a', '#eda100', '#e87ba4', '#008300', '#6250d6', '#e34948']
 EXTRA_COLORS = ['#4d4d4d', '#8c564b', '#17becf', '#bcbd22', '#7f7f7f', '#000000']
+
+# Variants of a method ('<name> (orig.)', '<name> (legacy)') keep the colour
+# and marker of <name> and get their own line style with hollow markers.
+VARIANT_LINESTYLES = {'orig.': '--', 'legacy': ':'}
+_VARIANT_PATTERN = re.compile(r'^(?P<base>.+) \((?P<tag>[^()]+)\)$')
 
 # metric column -> (title, y label)
 CHARTS = {
@@ -109,7 +114,6 @@ def method_styles(method_names, palette='husl'):
     """
     names = list(dict.fromkeys(method_names))
     canonical = [n for n in CANONICAL_METHOD_ORDER]
-    extras = sorted(n for n in names if n not in canonical)
 
     if palette == 'accessible':
         base_colors = ACCESSIBLE_COLORS
@@ -118,15 +122,34 @@ def method_styles(method_names, palette='husl'):
 
     styles = {}
     for i, name in enumerate(canonical):
-        styles[name] = {'color': base_colors[i], 'marker': CANONICAL_MARKERS[i]}
+        styles[name] = {'color': base_colors[i], 'marker': CANONICAL_MARKERS[i], 'linestyle': '-',
+                        'markerfacecolor': base_colors[i]}
 
+    # variants of known methods: same colour / marker, own line style, hollow marker
+    variants = {}
+    for name in names:
+        match = _VARIANT_PATTERN.match(name)
+        if name not in styles and match and match.group('base') in styles:
+            base = styles[match.group('base')]
+            styles[name] = dict(base, linestyle=VARIANT_LINESTYLES.get(match.group('tag'), '-.'),
+                                markerfacecolor='white')
+            variants.setdefault(match.group('base'), []).append(name)
+
+    extras = sorted(n for n in names if n not in styles)
     extra_colors = (ACCESSIBLE_COLORS[len(canonical):] if palette == 'accessible' else []) + EXTRA_COLORS
     for i, name in enumerate(extras):
-        styles[name] = {'color': extra_colors[i % len(extra_colors)],
-                        'marker': EXTRA_MARKERS[i % len(EXTRA_MARKERS)]}
+        color = extra_colors[i % len(extra_colors)]
+        styles[name] = {'color': color, 'marker': EXTRA_MARKERS[i % len(EXTRA_MARKERS)], 'linestyle': '-',
+                        'markerfacecolor': color}
 
-    order = [n for n in canonical if n in names] + extras
-    return styles, order
+    order = []
+    for name in canonical:
+        if name in names:
+            order.append(name)
+        order.extend(sorted(variants.get(name, [])))
+    order += [n for n in sorted(variants) if n not in canonical for n in sorted(variants[n])]
+    order += extras
+    return styles, list(dict.fromkeys(order))
 
 
 def aggregate(df, metric, test='NONE', x_column=X_COLUMN, name_column='NAME'):
@@ -183,6 +206,7 @@ def plot_metric_vs_capacity(df, metric, output_dir, test='NONE', palette='husl',
             continue
         style = styles[name]
         ax.plot(rows[X_COLUMN], rows['mean'], label=name, color=style['color'], marker=style['marker'],
+                linestyle=style.get('linestyle', '-'), markerfacecolor=style.get('markerfacecolor', style['color']),
                 linewidth=1.8, markersize=8)
         if ci and (rows['n'] > 1).any():
             ax.fill_between(rows[X_COLUMN], rows['mean'] - rows['ci95'], rows['mean'] + rows['ci95'],

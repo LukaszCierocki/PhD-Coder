@@ -15,6 +15,11 @@ class MDCT_SVD_WEN(DIFFERENTIAL_SVD_XUE_BASED_METHOD):
 
     Frames without a bit are passed through the analysis and synthesis windows
     (w^2) so that the overlap-add stays consistent.
+
+    Rule (Algorithm 1 of Wen et al.): S_avg, S_min = min(s1, s2);
+    bit 0: if s1 - s2 < alpha S_min: s1 = S_avg + alpha S_min / 2, s2 = S_avg - alpha S_min / 2
+    bit 1: symmetric. Only ALPHA is used (BETA is ignored, as in the paper).
+    As published: band 100-3000 Hz, alpha = 0.61 (BASELINES preset).
     """
 
     FRAMING = 'mdct'
@@ -44,21 +49,40 @@ class MDCT_SVD_WEN(DIFFERENTIAL_SVD_XUE_BASED_METHOD):
             self._window_cache[length] = self.MDCTProcessor.kaiser_derived(length, beta=self.WINDOW_BETA)
         return self._window_cache[length]
 
-    def band_size(self, fs):
-        dummy = np.zeros(self.frame_samples // 2)
-        band, _, _ = self.MDCTProcessor.filter_mdct_coeffs(dummy, fs, self.frame_samples, self.FREQ_L, self.FREQ_H)
-        return len(band)
+    def coefficient_count(self, frame_samples):
+        """A 2N-sample MDCT frame has N coefficients."""
+        return frame_samples // 2
+
+    def _band_bins_for(self, n_coeffs, fs, low_freq, high_freq):
+        """
+        MDCT bin k of a 2N-sample frame is centred at (k + 0.5) * fs / (2N).
+        (The old code used fs / N, i.e. it selected FREQ_L/2 .. FREQ_H/2.)
+        """
+        resolution = fs / (2.0 * n_coeffs)
+        k_low = max(0, int(np.floor(low_freq / resolution)))
+        k_high = min(n_coeffs, int(np.ceil(high_freq / resolution)))
+        return k_low, k_high
+
+    def _mdct(self, frame):
+        frame = np.asarray(frame, dtype=np.float64)
+        window = self.window(len(frame))
+        return window, self.MDCTProcessor.mdct(frame * window)
 
     def _band(self, frame, fs):
         """Windowed MDCT of ``frame`` and the FREQ_L-FREQ_H band of it."""
-        frame = np.asarray(frame, dtype=np.float64)
-        window = self.window(len(frame))
-        frame_mdct = self.MDCTProcessor.mdct(frame * window)
-        # frame_size = time-domain length (2N). The old code passed N (the
-        # number of MDCT coefficients), which selected FREQ_L/2 .. FREQ_H/2.
-        band, idx_low, idx_high = self.MDCTProcessor.filter_mdct_coeffs(
-            frame_mdct, fs, len(frame), self.FREQ_L, self.FREQ_H)
-        return window, frame_mdct, band, idx_low, idx_high
+        window, frame_mdct = self._mdct(frame)
+        idx_low, idx_high = self.band_bins(fs, len(frame_mdct))
+        return window, frame_mdct, frame_mdct[idx_low:idx_high], idx_low, idx_high
+
+    def band_energy_ratios_db(self, frames, fs):
+        ratios = []
+        for frame in np.asarray(frames, dtype=np.float64):
+            _, spectrum = self._mdct(frame)
+            k_low, k_high = self.band_bins(fs, len(spectrum))
+            total = np.sum(spectrum ** 2)
+            with np.errstate(divide='ignore', invalid='ignore'):
+                ratios.append(10.0 * np.log10(np.sum(spectrum[k_low:k_high] ** 2) / total))
+        return np.array(ratios)
 
     def embedd_in_frame(self, frame, bit, fs):
         """

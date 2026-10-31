@@ -37,16 +37,41 @@ ATTACK_NAMES = ('NOISE', 'HIGHPASS', 'LOWPASS', 'REQUANTIZE', 'MP3', 'JITTER', '
                 'CLIPPED', 'G711', 'PACKET_LOSS')
 
 
+# Attack parameters (override with Attacks(params={...}) or RUN_SETTINGS['ATTACK_PARAMS']).
+# Values follow the robustness protocol of the PC paper (based on Xue et al.).
+DEFAULT_ATTACK_PARAMS = {
+    'NOISE_SNR_DB': 30,                    # additive white Gaussian noise
+    'HIGHPASS_HZ': 500,                    # Butterworth, order 5, zero phase
+    'LOWPASS_HZ': 6500,                    # Butterworth, order 5, zero phase
+    'REQUANTIZE_BITS': 8,                  # 16 bit -> 8 bit -> 16 bit
+    'MP3_BITRATES': ['64k', '128k', '192k'],
+    'JITTER_SAMPLES': 1,
+    'RESAMPLE_FACTOR': 2,                  # fs -> fs / 2 -> fs, with anti-aliasing filter
+    'SCALES': [0.7, 1.3],                  # amplitude scaling
+    'PACKET_LOSS_MS': 20,
+    'PACKET_LOSS_RATE': 0.1,
+    'G711_RATE_HZ': 8000,
+}
+
+
 def no_attacks():
     return {name: False for name in ATTACK_NAMES}
 
 
+def all_attacks():
+    return {name: True for name in ATTACK_NAMES}
+
+
 class Attacks:
-    def __init__(self, logger=None, seed=None):
+    def __init__(self, logger=None, seed=None, params=None):
 
         self.logger = ensure_logger(logger)
         self.seed = seed
         self.rng = numpy.random.default_rng(seed)
+        unknown = set(params or {}) - set(DEFAULT_ATTACK_PARAMS)
+        if unknown:
+            raise ValueError(f"Unknown attack parameters {sorted(unknown)}; known: {sorted(DEFAULT_ATTACK_PARAMS)}")
+        self.params = dict(DEFAULT_ATTACK_PARAMS, **(params or {}))
 
     # ------------------------------------------------------------------ #
     # helpers
@@ -57,6 +82,14 @@ class Attacks:
         """Float signal in [-1, 1) (soundfile convention, int16 / 32768)."""
         data, samplerate = sf.read(path, dtype='float64')
         return data, samplerate
+
+    @staticmethod
+    def _butter(order, cutoff, samplerate, btype):
+        nyquist = 0.5 * samplerate
+        if not 0 < cutoff < nyquist:
+            raise ValueError(f"{btype}-pass cut-off {cutoff} Hz must lie between 0 and the Nyquist frequency "
+                             f"{nyquist} Hz of the file.")
+        return butter(order, cutoff / nyquist, btype=btype, analog=False)
 
     @staticmethod
     def _write(path, data, samplerate):
@@ -144,32 +177,28 @@ class Attacks:
 
     def low_pass_filter(self, input_path, file_name, cutoff=3000):
         data, samplerate = self._read_float(os.path.join(input_path, file_name))
-        b, a = butter(5, cutoff / (0.5 * samplerate), btype='low', analog=False)
+        b, a = self._butter(5, cutoff, samplerate, 'low')
         filtered_data = filtfilt(b, a, data, axis=0)
         return self._write(os.path.join(input_path, 'filtered_low_pass_' + file_name), filtered_data, samplerate)
 
     def requantize_audio(self, input_path, file_name, bit_depth=8):
         """
-        Rekwantyzuje sygnał audio do mniejszej liczby bitów i przywraca do
-        oryginalnej rozdzielczości (zapis jako 16-bit PCM).
+        Re-quantisation 16 bit -> ``bit_depth`` bit -> 16 bit: every sample is
+        rounded to the nearest multiple of 2^(16 - bit_depth) LSB (256 LSB for
+        8 bit) and clipped to int16.
         """
-        data, samplerate = self._read_float(os.path.join(input_path, file_name))
-
-        if data.ndim > 1:
-            data = data.mean(axis=1)
-
-        data_clipped = numpy.clip(data, -1.0, 1.0)
-
-        levels = 2 ** bit_depth
-        quantized = numpy.round((data_clipped + 1) * (levels / 2 - 1))
-        requantized = (quantized / (levels / 2 - 1)) - 1
+        if not 1 <= int(bit_depth) <= 16:
+            raise ValueError(f"bit_depth must be between 1 and 16, got {bit_depth}.")
+        data, samplerate = read_audio_as_int16(os.path.join(input_path, file_name))
+        step = 2 ** (16 - int(bit_depth))
+        requantized, _ = to_int16(numpy.round(data.astype(numpy.float64) / step) * step)
 
         output_file = f"requantized_{bit_depth}bit_" + file_name
         return self._write(os.path.join(input_path, output_file), requantized, samplerate)
 
     def high_pass_filter(self, input_path, file_name, cutoff=3000):
         data, samplerate = self._read_float(os.path.join(input_path, file_name))
-        b, a = butter(5, cutoff / (0.5 * samplerate), btype='high', analog=False)
+        b, a = self._butter(5, cutoff, samplerate, 'high')
         filtered_data = filtfilt(b, a, data, axis=0)
         return self._write(os.path.join(input_path, 'filtered_high_pass_' + file_name), filtered_data, samplerate)
 
@@ -250,24 +279,25 @@ class Attacks:
 
     def resample_attack(self, input_path, file_name, factor=2):
         """
-        Downsampling (co ``factor``-ta próbka) i powrót z interpolacją liniową.
+        Resampling fs -> fs / factor -> fs with polyphase filtering
+        (scipy.signal.resample_poly: anti-aliasing low-pass before decimation,
+        interpolation filter after upsampling, no delay). For 16 kHz files
+        and factor 2: 16 kHz -> 8 kHz -> 16 kHz, i.e. everything above 4 kHz is
+        removed. (The previous version took every 2nd sample without a filter,
+        so content above fs / 4 was aliased into the lower band.)
         """
-        data, samplerate = self._read_float(os.path.join(input_path, file_name))
-
-        if data.ndim == 1:
-            data = data[:, numpy.newaxis]
-
-        upsampled = []
-        for ch in range(data.shape[1]):
-            signal = data[:, ch]
-            downsampled = signal[::factor]
-            x_old = numpy.arange(0, len(downsampled)) * factor
-            upsampled.append(numpy.interp(numpy.arange(0, len(signal)), x_old, downsampled))
-
-        upsampled = numpy.stack(upsampled, axis=1) if len(upsampled) > 1 else upsampled[0]
+        data, samplerate = read_audio_as_int16(os.path.join(input_path, file_name))
+        signal = data.astype(numpy.float64)
+        down = resample_poly(signal, 1, int(factor))
+        up = resample_poly(down, int(factor), 1)
+        if len(up) >= len(signal):
+            up = up[:len(signal)]
+        else:
+            up = numpy.concatenate([up, numpy.zeros(len(signal) - len(up))])
+        resampled, _ = to_int16(up)
 
         output_file = f"resample_attack_x{factor}_" + file_name
-        return self._write(os.path.join(input_path, output_file), upsampled, samplerate)
+        return self._write(os.path.join(input_path, output_file), resampled, samplerate)
 
     def clipping_attack(self, input_path, file_name, threshold):
         """
@@ -297,31 +327,35 @@ class Attacks:
         if unknown:
             self.logger.warning(f"Unknown attack switches ignored: {sorted(unknown)}")
 
+        p = self.params
         jobs = []
         if enabled['NOISE']:
-            jobs.append(('NOISE', lambda: self.add_gaussian_noise_with_target_snr(directory, file_name, target_snr_db=30)))
+            jobs.append(('NOISE', lambda: self.add_gaussian_noise_with_target_snr(
+                directory, file_name, target_snr_db=p['NOISE_SNR_DB'])))
         if enabled['HIGHPASS']:
-            jobs.append(('HIGHPASS', lambda: self.high_pass_filter(directory, file_name, cutoff=500)))
+            jobs.append(('HIGHPASS', lambda: self.high_pass_filter(directory, file_name, cutoff=p['HIGHPASS_HZ'])))
         if enabled['LOWPASS']:
-            jobs.append(('LOWPASS', lambda: self.low_pass_filter(directory, file_name, cutoff=6500)))
+            jobs.append(('LOWPASS', lambda: self.low_pass_filter(directory, file_name, cutoff=p['LOWPASS_HZ'])))
         if enabled['REQUANTIZE']:
-            jobs.append(('REQUANTIZE', lambda: self.requantize_audio(directory, file_name, bit_depth=10)))
+            jobs.append(('REQUANTIZE', lambda: self.requantize_audio(directory, file_name,
+                                                                     bit_depth=p['REQUANTIZE_BITS'])))
         if enabled['MP3']:
-            for bitrate in ["64k", "128k", "192k"]:
+            for bitrate in p['MP3_BITRATES']:
                 jobs.append((f'MP3 {bitrate}', lambda b=bitrate: self.mp3_compression_attack(directory, file_name, bitrate=b)))
         if enabled['JITTER']:
-            jobs.append(('JITTER', lambda: self.jitter_attack(directory, file_name, 1)))
+            jobs.append(('JITTER', lambda: self.jitter_attack(directory, file_name, p['JITTER_SAMPLES'])))
         if enabled['RESAMPLE']:
-            jobs.append(('RESAMPLE', lambda: self.resample_attack(directory, file_name, 2)))
+            jobs.append(('RESAMPLE', lambda: self.resample_attack(directory, file_name, p['RESAMPLE_FACTOR'])))
         if enabled['CLIPPED']:
-            for level in [0.7, 1.3]:
+            for level in p['SCALES']:
                 jobs.append((f'CLIPPED {level}', lambda lv=level: self.clipping_attack(directory, file_name, threshold=lv)))
         if enabled['PACKET_LOSS']:
-            jobs.append(('PACKET_LOSS', lambda: self.packet_loss_attack(directory, file_name, frame_ms=20,
-                                                                        loss_rate=0.1, replace_with='zero')))
+            jobs.append(('PACKET_LOSS', lambda: self.packet_loss_attack(
+                directory, file_name, frame_ms=p['PACKET_LOSS_MS'], loss_rate=p['PACKET_LOSS_RATE'],
+                replace_with='zero')))
         if enabled['G711']:
-            jobs.append(('G711 mu', lambda: self.g711_attack(directory, file_name, law='mu', target_fs=8000)))
-            jobs.append(('G711 A', lambda: self.g711_attack(directory, file_name, law='a', target_fs=8000)))
+            jobs.append(('G711 mu', lambda: self.g711_attack(directory, file_name, law='mu', target_fs=p['G711_RATE_HZ'])))
+            jobs.append(('G711 A', lambda: self.g711_attack(directory, file_name, law='a', target_fs=p['G711_RATE_HZ'])))
 
         written = []
         for label, job in jobs:

@@ -2,36 +2,21 @@ import numpy as np
 from scipy.fftpack import dct, idct
 from scipy.linalg import svd
 
+from lib.EmbeddingRules import xue_rule  # noqa: F401  (re-exported for older imports)
 from lib.Method import DIFFERENTIAL_SVD_XUE_BASED_METHOD
 
 
-def xue_rule(ro_11, ro_21, bit, alpha, beta):
-    """
-    Differential SVD rule of Xue et al.
-
-    bit 0: require ro_11 - ro_21 >= alpha * ro_21, otherwise ro_11 := ro_21 + alpha * ro_21
-    bit 1: require ro_21 - ro_11 >= beta  * ro_11, otherwise ro_21 := ro_11 + beta  * ro_11
-
-    The previous implementation used ``ro_21 + beta * ro_11`` for bit 1, which
-    does not reach the threshold (and is decoded as 0) whenever
-    ro_21 < (1 - beta) * ro_11.
-    """
-    T_bu_1 = alpha * ro_21
-    T_bu_2 = beta * ro_11
-
-    ro_dash_11, ro_dash_21 = ro_11, ro_21
-
-    if bit == 0:
-        if ro_11 - ro_21 < T_bu_1:
-            ro_dash_11 = ro_21 + T_bu_1
-    else:
-        if ro_21 - ro_11 < T_bu_2:
-            ro_dash_21 = ro_11 + T_bu_2
-
-    return ro_dash_11, ro_dash_21
-
-
 class DIFFERENTIAL_SVD_XUE(DIFFERENTIAL_SVD_XUE_BASED_METHOD):
+    """
+    Xue et al. (2019): DCT band, even/odd coefficients reshaped to matrices,
+    differential rule on the largest singular values (lib.EmbeddingRules.xue_rule).
+
+    LEGACY=True uses Eq. (22) exactly as printed (b' = b + beta a), which the
+    previous code did. As published, Xue et al. embed in every frame
+    (WHERE_TO_HIDE='ALL') with alpha = beta = 0.2 (BASELINES preset).
+    """
+
+    SUPPORTS_LEGACY = True
 
     def __init__(self, method_arguments, logger=None):
 
@@ -69,7 +54,7 @@ class DIFFERENTIAL_SVD_XUE(DIFFERENTIAL_SVD_XUE_BASED_METHOD):
         ro_11 = s_evn[i_evn]
         ro_21 = s_odd[i_odd]
 
-        ro_dash_11, ro_dash_21 = xue_rule(ro_11, ro_21, bit, self.alpha, self.beta)
+        ro_dash_11, ro_dash_21 = xue_rule(ro_11, ro_21, bit, self.alpha, self.beta, as_printed=self.legacy)
 
         self.s_even.append(ro_11)
         self.s_odd.append(ro_21)

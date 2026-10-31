@@ -3,13 +3,17 @@ from lib.Method import DCT_MULTI_LEVEL_SVD_METHOD
 
 class DIFFERENTIAL_SVD_PEJAS_CIEROCKI_MULTI_V1(DCT_MULTI_LEVEL_SVD_METHOD):
     """
-    PC Xue [v1] - Xue-style rule on the deepest level of the multi-level
-    Hankel SVD, thresholds scaled by the mean singular value ``davg``.
+    PC Xue [v1] - Algorithm 4 (RSLBE), mode PCXUEv1, of the PC paper:
+    only one singular value is changed, thresholds scaled by S_avg.
 
     The embedding pipeline (DCT, band, even/odd split, multi-level SVD,
-    reconstruction) lives in ``DCT_MULTI_LEVEL_SVD_METHOD``; this class only
-    defines how the two largest singular values are changed.
+    reconstruction) lives in ``DCT_MULTI_LEVEL_SVD_METHOD``; the rule is in
+    ``lib.EmbeddingRules.rslbe``. ADAPTIVE and REDUCED are used only with
+    LEGACY=True (the previous implementation).
     """
+
+    PAPER_MODE = 'PCXUEv1'
+    SUPPORTS_LEGACY = True
 
     def __init__(self, method_arguments, logger=None):
 
@@ -26,7 +30,12 @@ class DIFFERENTIAL_SVD_PEJAS_CIEROCKI_MULTI_V1(DCT_MULTI_LEVEL_SVD_METHOD):
         return len(carrier)
 
     def modify_singular_values(self, ro_11, ro_21, bit):
+        if self.legacy:
+            return self.legacy_rule(ro_11, ro_21, bit)
+        return self.paper_rule(ro_11, ro_21, bit)
 
+    def legacy_rule(self, ro_11, ro_21, bit):
+        """Rule of the code base before 2026-10-31 (differs from Algorithm 4 for bit 1)."""
         davg = (ro_11 + ro_21) / 2.0
         ro_dash_11, ro_dash_21 = ro_11, ro_21
 

@@ -3,9 +3,13 @@ from lib.Method import DCT_MULTI_LEVEL_SVD_METHOD
 
 class DIFFERENTIAL_SVD_PEJAS_CIEROCKI_MULTI_V2(DCT_MULTI_LEVEL_SVD_METHOD):
     """
-    PC Xue [v2] - like PC Xue [v1], but both thresholds are always adaptive
-    and for bit 0 the even singular value is moved relative to itself.
+    PC Xue [v2] - Algorithm 4 (RSLBE), mode PCXUEv2: like PC Xue [v1] but
+    with the adjusted factor alpha_A = alpha - delta for bit 0 (keep threshold
+    alpha S_avg / 2). ADAPTIVE and REDUCED are used only with LEGACY=True.
     """
+
+    PAPER_MODE = 'PCXUEv2'
+    SUPPORTS_LEGACY = True
 
     def __init__(self, method_arguments, logger=None):
 
@@ -22,7 +26,12 @@ class DIFFERENTIAL_SVD_PEJAS_CIEROCKI_MULTI_V2(DCT_MULTI_LEVEL_SVD_METHOD):
         return len(carrier)
 
     def modify_singular_values(self, ro_11, ro_21, bit):
+        if self.legacy:
+            return self.legacy_rule(ro_11, ro_21, bit)
+        return self.paper_rule(ro_11, ro_21, bit)
 
+    def legacy_rule(self, ro_11, ro_21, bit):
+        """Rule of the code base before 2026-10-31 (differs from Algorithm 4 for bit 1)."""
         davg = (ro_11 + ro_21) / 2.0
         ro_dash_11, ro_dash_21 = ro_11, ro_21
 

@@ -30,6 +30,7 @@ from scipy.signal.windows import kaiser
 from BitVector import BitVector
 
 from lib import speechproc
+from lib.EmbeddingRules import adjusted_factors, rslbe
 
 try:  # webrtcvad is optional - only needed for TYPE_OF_VAD = 'webrtc'
     import webrtcvad
@@ -41,7 +42,16 @@ INT16_MIN = -32768
 INT16_MAX = 32767
 
 SUPPORTED_VADS = ('rVAD', 'webrtc', 'webrtcVAD')
-SUPPORTED_HIDING_PLACES = ('VOICED',)
+# 'VOICED': only frames marked as speech by the VAD carry bits (PC, Wen);
+# 'ALL': every frame carries a bit, no VAD (Xue et al. as published).
+SUPPORTED_HIDING_PLACES = ('VOICED', 'ALL')
+
+# Warning threshold for the median band / frame energy of the carrying frames.
+# Speech in 1.5-2.5 kHz is about -20 dB (CMU ARCTIC: -19 ... -24 dB); a band
+# outside the signal bandwidth only contains spectral leakage of the
+# rectangular DCT frames (about -40 dB) - its singular values then describe
+# leakage and noise rather than the signal, and bits become unreliable.
+BAND_ENERGY_WARNING_DB = -35.0
 
 _NULL_LOGGER = logging.getLogger('phd_coder.null')
 _NULL_LOGGER.addHandler(logging.NullHandler())
@@ -151,8 +161,8 @@ class Method:
         # in the saved test configuration.
         self.method_arguments = dict(method_arguments)
 
-        self.name = None
-        self.normal_name = None
+        self._name = None
+        self._normal_name = None
 
         self.capacity = None
 
@@ -170,6 +180,36 @@ class Method:
         self.extraction_key = None
         self.clipped_samples = 0
         self.embedded_bits = 0
+
+    @property
+    def legacy(self):
+        """LEGACY=True: embedding rules of the code base before 2026-10-31 (see docs/METHODS.md)."""
+        return bool(self.method_arguments.get('LEGACY', False))
+
+    @property
+    def name(self):
+        """Technical name (result folders); '_LEGACY' is appended in legacy mode."""
+        if self._name is None:
+            return None
+        return self._name + ('_LEGACY' if self.legacy else '')
+
+    @name.setter
+    def name(self, value):
+        self._name = value
+
+    @property
+    def normal_name(self):
+        """Display name (charts, tables): LABEL if given, ' (legacy)' appended in legacy mode."""
+        label = self.method_arguments.get('LABEL')
+        if label:
+            return label
+        if self._normal_name is None:
+            return None
+        return self._normal_name + (' (legacy)' if self.legacy else '')
+
+    @normal_name.setter
+    def normal_name(self, value):
+        self._normal_name = value
 
     def set_carrier(self, carrier):
         """
@@ -651,7 +691,17 @@ class DIFFERENTIAL_SVD_XUE_BASED_METHOD(Method):
         'HOP_DURATION_MS': None,
         'LEVELS': 1,
         'HANKEL_ROWS': 2,
+        'LEGACY': False,
+        'LABEL': None,
     }
+
+    # True for methods whose embedding rule changed on 2026-10-31 and can be
+    # switched back with LEGACY=True.
+    SUPPORTS_LEGACY = False
+
+    # Parameters that must be identical at the sender and the receiver
+    # (compared with the extraction key in addition to the band bins).
+    KEY_CHECKED_PARAMS = ()
 
     # 'rectangular': frames are concatenated without a synthesis window, so
     # HOP_DURATION_MS must equal FRAME_LENGTH (otherwise overlapping samples
@@ -709,6 +759,11 @@ class DIFFERENTIAL_SVD_XUE_BASED_METHOD(Method):
         self.frame_samples = None
         self.hop_samples = None
 
+        # Band actually used for the current carrier (set in set_carrier).
+        self.band = None                 # (first bin, last bin + 1)
+        self.band_frequency = None       # (low, high) in Hz
+        self.band_energy_db = None       # median band / frame energy of the carrying frames
+
         self.FrameProcessor = FrameProcessor(self.logger)
         self.MDCTProcessor = MDCTProcessor()
         self.MultiLevelSVDProcessor = MultiLevelSVDProcessor(self.method_arguments, self.logger)
@@ -760,6 +815,12 @@ class DIFFERENTIAL_SVD_XUE_BASED_METHOD(Method):
         _require_int(arguments, 'LEVELS', 0)
         _require_int(arguments, 'HANKEL_ROWS', 2)
 
+        if _require_bool(arguments, 'LEGACY') and not self.SUPPORTS_LEGACY:
+            raise ValueError(f"{self.__class__.__name__} has no LEGACY variant.")
+        label = arguments.get('LABEL')
+        if label is not None and (not isinstance(label, str) or not label.strip()):
+            raise ValueError(f"LABEL must be a non-empty string or None, got {label!r}.")
+
     def _validate_carrier(self, carrier):
         fs = carrier.fs
         if not isinstance(fs, (int, np.integer)) or fs <= 0:
@@ -774,22 +835,111 @@ class DIFFERENTIAL_SVD_XUE_BASED_METHOD(Method):
         if self.FRAMING == 'mdct' and self.frame_samples % 2:
             raise ValueError("MDCT frames must have an even number of samples.")
 
-        n_band = self.band_size(fs)
+        n_coeffs = self.coefficient_count(self.frame_samples)
+        k_low, k_high = self.band_bins(fs, n_coeffs)
+        low_hz, high_hz = self.band_frequencies(fs, n_coeffs)
+        n_band = k_high - k_low
         if n_band < self.MIN_BAND_COEFFICIENTS:
             raise ValueError(
-                f"Only {n_band} coefficients fall into {self.FREQ_L}-{self.FREQ_H} Hz for "
-                f"{self.frame_length} ms frames at {fs} Hz; {self.name} needs at least "
-                f"{self.MIN_BAND_COEFFICIENTS}. Widen the band or use longer frames."
+                f"Only {n_band} coefficients fall into {self.FREQ_L}-{self.FREQ_H} Hz "
+                f"(bins {k_low}..{k_high - 1}, {low_hz:.0f}-{high_hz:.0f} Hz) for {self.frame_length} ms "
+                f"frames at {fs} Hz; {self.name} needs at least {self.MIN_BAND_COEFFICIENTS}. "
+                f"Widen the band or use longer frames."
             )
+        if self.FRAMING == 'rectangular' and k_low == 0:
+            self.logger.warning(
+                "%s: the band %s-%s Hz includes the DC coefficient - changing it shifts the mean of every "
+                "frame and causes clicks at the frame borders. Use FREQ_L above %.1f Hz.",
+                self.name, self.FREQ_L, self.FREQ_H, fs / (2.0 * n_coeffs))
 
         if len(carrier.data_signed_int16) < self.frame_samples:
             raise ValueError(f"Carrier {carrier.name} is shorter than one frame.")
 
+        self.band = (k_low, k_high)
+        self.band_frequency = (low_hz, high_hz)
+
+    # ------------------------------------------------------------------ #
+    # Frequency band
+    # ------------------------------------------------------------------ #
+
+    def coefficient_count(self, frame_samples):
+        """Number of transform coefficients of one frame (DCT: N; the MDCT has N / 2)."""
+        return frame_samples
+
+    @property
+    def even_band(self):
+        """
+        Use an even number 2M of band coefficients, as assumed by Xue et al.,
+        Wen et al. and the PC paper (even and odd branch of equal length). If
+        the band contains an odd number of bins, the last one is dropped.
+        Off in LEGACY mode.
+        """
+        return not self.legacy
+
+    def _band_bins_for(self, n_coeffs, fs, low_freq, high_freq):
+        """Raw band bins of the DCT: bin k <-> k * fs / (2N), truncated."""
+        k_low = max(0, int(low_freq / (fs / 2) * n_coeffs))
+        k_high = min(n_coeffs, int(high_freq / (fs / 2) * n_coeffs))
+        return k_low, k_high
+
+    def band_bins(self, fs, n_coeffs=None, low_freq=None, high_freq=None):
+        """
+        Transform bins of the band: returns (first bin, last bin + 1). Used by
+        embedding, extraction, validation and the extraction key, so all of
+        them always agree.
+        """
+        if n_coeffs is None:
+            n_coeffs = self.coefficient_count(ms_to_samples(self.frame_length, fs, 'FRAME_LENGTH'))
+        low_freq = self.FREQ_L if low_freq is None else low_freq
+        high_freq = self.FREQ_H if high_freq is None else high_freq
+        k_low, k_high = self._band_bins_for(n_coeffs, fs, low_freq, high_freq)
+        if self.even_band and k_high > k_low and (k_high - k_low) % 2:
+            k_high -= 1
+        return k_low, k_high
+
+    def band_frequencies(self, fs, n_coeffs=None):
+        """Band actually used, in Hz: (k_low * df, k_high * df), df = fs / (2 * n_coeffs)."""
+        if n_coeffs is None:
+            n_coeffs = self.coefficient_count(ms_to_samples(self.frame_length, fs, 'FRAME_LENGTH'))
+        k_low, k_high = self.band_bins(fs, n_coeffs)
+        resolution = fs / (2.0 * n_coeffs)
+        return k_low * resolution, k_high * resolution
+
     def band_size(self, fs):
         """Number of transform coefficients in the FREQ_L-FREQ_H band."""
-        dummy = np.zeros(self.frame_samples)
-        band, _, _ = self.filter_dct_coeffs(dummy, fs, self.FREQ_L, self.FREQ_H)
-        return len(band)
+        k_low, k_high = self.band_bins(fs, self.coefficient_count(ms_to_samples(self.frame_length, fs)))
+        return k_high - k_low
+
+    def band_energy_ratios_db(self, frames, fs):
+        """
+        Per frame: 10 log10(band energy / frame energy) in the transform
+        domain (-inf: no energy in the band, NaN: silent frame).
+        """
+        frames = np.asarray(frames, dtype=np.float64)
+        if frames.size == 0:
+            return np.array([])
+        spectrum = dct(frames, norm='ortho', axis=1)
+        k_low, k_high = self.band_bins(fs, spectrum.shape[1])
+        total = np.sum(spectrum ** 2, axis=1)
+        band = np.sum(spectrum[:, k_low:k_high] ** 2, axis=1)
+        with np.errstate(divide='ignore', invalid='ignore'):
+            return 10.0 * np.log10(band / total)
+
+    def _check_band_energy(self, frames, fs):
+        ratios = self.band_energy_ratios_db(frames, fs)
+        finite = ratios[np.isfinite(ratios)] if len(ratios) else ratios
+        self.band_energy_db = float(np.median(finite)) if len(finite) else float('-inf')
+        empty = int(len(ratios) - len(finite))
+        if self.band_energy_db < BAND_ENERGY_WARNING_DB:
+            self.logger.warning(
+                "%s: the band %.0f-%.0f Hz carries almost no energy in carrier %s (median %.1f dB of the "
+                "frame energy, threshold %.0f dB) - bits may be unreliable. Choose a band inside the signal "
+                "bandwidth.",
+                self.name, self.band_frequency[0], self.band_frequency[1], self.carrier.name, self.band_energy_db,
+                BAND_ENERGY_WARNING_DB)
+        if empty:
+            self.logger.warning("%s: %d of %d frames of carrier %s have no energy in the band - their bits "
+                                "cannot be recovered.", self.name, empty, len(ratios), self.carrier.name)
 
     # ------------------------------------------------------------------ #
     # State
@@ -886,10 +1036,19 @@ class DIFFERENTIAL_SVD_XUE_BASED_METHOD(Method):
         self.secret = None
         self.reset_state()
 
-        (self.voiced_frames, self.unvoiced_frames, self.voiced_indices,
-         self.unvoiced_indices, self.remaining_samples) = self.FrameProcessor.divide_into_voiced_unvoiced_frames(
-            self.type_of_vad, self.carrier.data_signed_int16, self.carrier.fs,
-            self.frame_length, self.hop_duration_ms)
+        if self.where_to_hide == 'ALL':
+            # No VAD: every frame carries a bit (Xue et al. as published).
+            frames, _, remaining = self.FrameProcessor.divide_into_frames(
+                self.carrier.data_signed_int16, self.frame_length, self.carrier.fs, self.hop_duration_ms)
+            self.voiced_frames, self.unvoiced_frames = frames, frames[:0]
+            self.voiced_indices = np.arange(len(frames))
+            self.unvoiced_indices = np.array([], dtype=int)
+            self.remaining_samples = remaining
+        else:
+            (self.voiced_frames, self.unvoiced_frames, self.voiced_indices,
+             self.unvoiced_indices, self.remaining_samples) = self.FrameProcessor.divide_into_voiced_unvoiced_frames(
+                self.type_of_vad, self.carrier.data_signed_int16, self.carrier.fs,
+                self.frame_length, self.hop_duration_ms)
 
         total_frames = len(self.voiced_indices) + len(self.unvoiced_indices)
         self.frames_to_use = [None] * total_frames
@@ -911,6 +1070,10 @@ class DIFFERENTIAL_SVD_XUE_BASED_METHOD(Method):
 
         if self.capacity <= 0:
             raise ValueError(f"Carrier {carrier.name} has no voiced frames - capacity is 0 bits.")
+
+        self.logger.info("%s: band bins %d..%d (%d coefficients), %.1f-%.1f Hz", self.name, self.band[0],
+                         self.band[1] - 1, self.band[1] - self.band[0], *self.band_frequency)
+        self._check_band_energy(self.voiced_frames, carrier.fs)
 
     # ------------------------------------------------------------------ #
     # Per-frame hooks
@@ -940,7 +1103,37 @@ class DIFFERENTIAL_SVD_XUE_BASED_METHOD(Method):
             'hop_duration_ms': self.hop_duration_ms,
             'n_bits': int(n_bits),
             'voiced_mask': encode_mask(self.frames_voice_status),
+            'band_bins': [int(self.band[0]), int(self.band[1])],
+            'band_hz': [float(self.band_frequency[0]), float(self.band_frequency[1])],
+            'legacy': self.legacy,
+            'params': {name: self.method_arguments.get(name) for name in (
+                'FREQ_L', 'FREQ_H', 'FRAME_LENGTH', 'HOP_DURATION_MS', 'WHERE_TO_HIDE', 'LEVELS',
+                'HANKEL_ROWS', 'LEGACY')},
         }
+
+    def check_key(self, key, fs):
+        """
+        Makes sure the receiver decodes the same band (and decomposition) as
+        the sender - a different FREQ_L/FREQ_H, frame length or LEGACY setting
+        would otherwise silently produce wrong bits. Keys written before this
+        check existed (no 'band_bins') are accepted.
+        """
+        if 'band_bins' in key:
+            frame_ms = key.get('frame_length_ms', self.frame_length)
+            n_coeffs = self.coefficient_count(ms_to_samples(frame_ms, fs, 'FRAME_LENGTH'))
+            ours = [int(v) for v in self.band_bins(fs, n_coeffs)]
+            theirs = [int(v) for v in key['band_bins']]
+            if ours != theirs:
+                raise ValueError(
+                    f"{self.name}: the receiver would decode bins {ours} (FREQ_L={self.FREQ_L}, "
+                    f"FREQ_H={self.FREQ_H}, LEGACY={self.legacy}) but the stegobject was embedded in bins "
+                    f"{theirs} ({key.get('band_hz')} Hz, parameters {key.get('params')}). "
+                    f"Create the receiver with the parameters stored in the key.")
+        params = key.get('params') or {}
+        for name in self.KEY_CHECKED_PARAMS:
+            if name in params and params[name] != self.method_arguments.get(name):
+                raise ValueError(f"{self.name}: {name} = {self.method_arguments.get(name)} at the receiver, "
+                                 f"{params[name]} in the extraction key.")
 
     # ------------------------------------------------------------------ #
     # Matrix helpers
@@ -1004,14 +1197,7 @@ class DIFFERENTIAL_SVD_XUE_BASED_METHOD(Method):
         Zwraca współczynniki DCT tylko z określonego zakresu częstotliwości.
         DCT-II bin ``k`` of an N-point frame corresponds to ``k * Fs / (2N)``.
         """
-        N = len(coeffs)
-
-        k_low = int(low_freq / (Fs / 2) * N)
-        k_high = int(high_freq / (Fs / 2) * N)
-
-        k_low = max(0, k_low)
-        k_high = min(N, k_high)
-
+        k_low, k_high = self.band_bins(Fs, len(coeffs), low_freq, high_freq)
         return coeffs[k_low:k_high], k_low, k_high
 
     def hamming_15_11_encode(self, data_bits):
@@ -1149,6 +1335,7 @@ class DIFFERENTIAL_SVD_XUE_BASED_METHOD(Method):
             raise RuntimeError(f"{self.name}: no extraction key - run embedding() first or pass key=...")
 
         data, fs = self._unpack_stegobject(stegobject, key)
+        self.check_key(key, fs)
         voiced_mask = decode_mask(key['voiced_mask'])
         n_bits = int(key['n_bits'])
 
@@ -1207,6 +1394,8 @@ class DIFFERENTIAL_SVD_XUE_BASED_METHOD(Method):
 
 class MULTI_LEVEL_METHOD(DIFFERENTIAL_SVD_XUE_BASED_METHOD):
 
+    KEY_CHECKED_PARAMS = ('LEVELS', 'HANKEL_ROWS')
+
     def __init__(self, method_arguments, logger=None):
 
         super().__init__(method_arguments, logger)
@@ -1256,7 +1445,22 @@ class DCT_MULTI_LEVEL_SVD_METHOD(MULTI_LEVEL_METHOD):
               -> inverse decomposition -> merge -> inverse DCT
 
     Extraction: bit = 0 if sigma_even > sigma_odd on the deepest level, else 1.
+
+    PC versions set ``PAPER_MODE`` (Algorithm 4 of the PC paper) and use
+    ``paper_rule``; with LEGACY=True they use their previous rule.
     """
+
+    # 'PCXUEv1', 'PCXUEv2', 'PCv1' or 'PCv2' (lib.EmbeddingRules)
+    PAPER_MODE = None
+
+    def paper_rule(self, ro_11, ro_21, bit):
+        """
+        Algorithm 4 (RSLBE) of the PC paper with the constant parts ALPHA,
+        BETA; the recorded alpha / beta are the adjusted factors of Lemma 1.
+        """
+        alpha_A, beta_A = adjusted_factors(self.PAPER_MODE, ro_11, ro_21, self.alpha, self.beta)
+        new_11, new_21 = rslbe(self.PAPER_MODE, bit, ro_11, ro_21, self.alpha, self.beta)
+        return new_11, new_21, alpha_A, beta_A
 
     def modify_singular_values(self, ro_11, ro_21, bit):
         """

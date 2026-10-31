@@ -28,10 +28,9 @@ sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 import matplotlib
 matplotlib.use('Agg')  # batch runner - never open windows
 
-import pandas as pd
 
 from lib.Analysis import Analysis, test_label_from_filename
-from lib.Attacks import Attacks, no_attacks
+from lib.Attacks import ATTACK_NAMES, Attacks, all_attacks, no_attacks
 from lib.Registry import available_methods, canonical_name, create_method
 from lib.Secret import Secret
 from lib.Tools import Tools
@@ -60,6 +59,9 @@ RUN_SETTINGS = {
     'STEGANALYSIS_CONFIG': {},   # overrides of lib.Steganalysis.DEFAULT_CONFIG (e.g. {'PERM_B': 500})
     'SEED': None,                # int -> reproducible secrets and attacks
     'MAX_CARRIERS': None,        # use only the first N carriers (sorted by name)
+    'LEGACY': False,             # previous embedding rules of the PC methods and Xue (docs/METHODS.md)
+    'ATTACKS': None,             # None = attacks of the preset; dict {name: bool} overrides them
+    'ATTACK_PARAMS': {},         # overrides of lib.Attacks.DEFAULT_ATTACK_PARAMS (e.g. {'REQUANTIZE_BITS': 10})
 }
 
 # Common parameters of the frame-based methods.
@@ -79,6 +81,17 @@ THESIS_METHODS = [
     ('DIFFERENTIAL_SVD_PEJAS_CIEROCKI_MULTI_PC_V1', {'ADAPTIVE': False}),
     ('DIFFERENTIAL_SVD_PEJAS_CIEROCKI_MULTI_PC_V2', {'ADAPTIVE': True}),
     ('DIFFERENTIAL_SVD_PEJAS_CIEROCKI_MULTI_PC_V3', {'ADAPTIVE': True, 'LEVELS': 8}),
+]
+
+# Baselines with the parameters published by their authors (BASELINES preset):
+# Xue et al. 2019 - alpha1 = alpha2 = 0.2, 1.5-2.5 kHz, every frame (no VAD);
+# Wen et al. 2021 - alpha = 0.61, 100 Hz - 3 kHz, voiced frames, MDCT with KBD window.
+# Not reproducible here: their corpora (TIMIT at 8 kHz) and Wen's codec VAD (rVAD is used).
+ORIGINAL_BASELINES = [
+    ('DIFFERENTIAL_SVD_XUE', {'ALPHA': 0.2, 'BETA': 0.2, 'FREQ_L': 1500, 'FREQ_H': 2500,
+                              'WHERE_TO_HIDE': 'ALL', 'LABEL': 'Xue et. al. (orig.)'}),
+    ('MDCT_SVD_WEN', {'ALPHA': 0.61, 'BETA': 0.61, 'FREQ_L': 100, 'FREQ_H': 3000, 'MDCT': True,
+                      'LABEL': 'Wen Et. Al. (orig.)'}),
 ]
 
 # Nominal capacities of the thesis charts: 1 bit per hop -> hop = 1000 / bps [ms]
@@ -142,7 +155,24 @@ def build_robustness(logger):
     """All thesis methods at 50 bps with all attacks (BER per attack charts)."""
     return {
         'methods': thesis_methods(logger, hop_ms=20),
-        'attacks': {name: True for name in no_attacks()},
+        'attacks': all_attacks(),
+        'settings': {'PER_FILE_PLOTS': False},
+    }
+
+
+def build_baselines(logger):
+    """
+    Xue et al. and Wen et al. with the parameters of their papers at
+    25 ... 100 bps - labelled '(orig.)' so they can be plotted next to the
+    thesis methods (python coder.py --plots-from <run> <run> ...).
+    """
+    methods = []
+    for bps in CAPACITY_SWEEP_BPS:
+        for name, overrides in ORIGINAL_BASELINES:
+            methods.append(create_method(name, params(1000.0 / bps, **dict(overrides)), logger))
+    return {
+        'methods': methods,
+        'attacks': no_attacks(),
         'settings': {'PER_FILE_PLOTS': False},
     }
 
@@ -152,7 +182,18 @@ PRESETS = {
     'FOR_CLASSIFIER': build_for_classifier,
     'CAPACITY_SWEEP': build_capacity_sweep,
     'ROBUSTNESS': build_robustness,
+    'BASELINES': build_baselines,
 }
+
+
+def apply_legacy(methods, logger):
+    """Re-creates every method that has a LEGACY variant with LEGACY=True."""
+    result = []
+    for method in methods:
+        if getattr(method, 'SUPPORTS_LEGACY', False) and not method.legacy:
+            method = create_method(method.__class__.__name__, dict(method.method_arguments, LEGACY=True), logger)
+        result.append(method)
+    return result
 
 
 # --------------------------------------------------------------------------- #
@@ -192,7 +233,8 @@ def run_experiment(tools, jobs, attacks_config, settings):
     test_dir = tools.get_current_test_directory()
     only_embed = settings['ONLY_EMBED']
 
-    attacks = Attacks(logger=logger, seed=settings['SEED'])
+    attacks = Attacks(logger=logger, seed=settings['SEED'], params=settings.get('ATTACK_PARAMS'))
+    settings['ATTACK_PARAMS'] = attacks.params   # recorded in the configuration file
     analysis = Analysis(logger=logger, plots=settings['PER_FILE_PLOTS'])
 
     performed_tests, failures, pairs, secrets_config = [], [], [], []
@@ -371,15 +413,20 @@ def run_and_save_test(settings=None, results_root=None, carriers_dir=None):
         raise SystemExit(f"No carriers found in {tools.carriers_dir}.")
 
     methods = preset['methods']
+    if settings['LEGACY']:
+        methods = apply_legacy(methods, logger)
+    attacks_config = dict(no_attacks(), **(settings['ATTACKS'] if settings['ATTACKS'] is not None
+                                           else preset['attacks']))
+
     jobs = [{'method': method, 'carrier': carrier, 'seed': derive_seed(settings['SEED'], method.name, carrier.name)}
             for method in methods for carrier in carriers]
 
-    result = run_experiment(tools, jobs, preset['attacks'], settings)
+    result = run_experiment(tools, jobs, attacks_config, settings)
 
     print(f"TEST ID: {test_id}")
     return finish_run(tools, result, settings,
                       [{"name": m.__class__.__name__, "params": m.method_arguments} for m in methods],
-                      [c.to_metadata() for c in carriers], preset['attacks'])
+                      [c.to_metadata() for c in carriers], attacks_config)
 
 
 def run_test_from_config(config_path, settings=None, results_root=None, carriers_dir=None):
@@ -401,14 +448,23 @@ def run_test_from_config(config_path, settings=None, results_root=None, carriers
     logger.info(f"Replaying {config_path}")
 
     jobs, carriers_cache = [], {}
+    old_format = any('LEGACY' not in test["method"]["params"] for test in config["performed_tests"])
+    if old_format and not settings.get('LEGACY'):
+        logger.warning("Configuration created before 2026-10-31: the PC methods and Xue now use the rules of the "
+                       "paper. Add --legacy to replay with the previous rules.")
     for test in config["performed_tests"]:
         method = create_method(canonical_name(test["method"]["name"]), test["method"]["params"], logger)
+        if settings.get('LEGACY'):
+            method = apply_legacy([method], logger)[0]
         carrier_name = test["carrier"]
         if carrier_name not in carriers_cache:
             carriers_cache[carrier_name] = tools.load_carrier(carrier_name)
         jobs.append({'method': method, 'carrier': carriers_cache[carrier_name], 'seed': test["secret"]["seed"]})
 
     attacks_config = dict(no_attacks(), **config.get("attacks", {}))
+    # Old configuration files have no ATTACK_PARAMS - their runs used 10-bit
+    # re-quantisation and resampling without an anti-aliasing filter, which
+    # cannot be reproduced exactly; the current defaults are used then.
     result = run_experiment(tools, jobs, attacks_config, settings)
 
     return finish_run(tools, result, settings, config.get("methods", []),
@@ -435,6 +491,10 @@ def parse_args(argv=None):
     parser.add_argument("--results-root", type=str, help="results directory (default $PHD_CODER_RESULTS or ~/Results)")
     parser.add_argument("--seed", type=int, help="seed for secrets and attacks")
     parser.add_argument("--palette", choices=['husl', 'accessible'], help="chart palette")
+    parser.add_argument("--legacy", action='store_true', default=None,
+                        help="previous embedding rules of the PC methods and Xue (reproduces older results)")
+    parser.add_argument("--attacks", nargs='+', metavar='ATTACK',
+                        help=f"override the attacks of the preset: all, none or names ({', '.join(ATTACK_NAMES)})")
     parser.add_argument("--ci", action='store_true', default=None, help="95%% confidence bands in charts")
 
     parser.add_argument("--plots-from", nargs='+', metavar='PATH',
@@ -450,6 +510,21 @@ def parse_args(argv=None):
     return parser.parse_args(argv)
 
 
+def parse_attacks(names):
+    """--attacks all | none | NOISE MP3 ... -> {name: bool} or None."""
+    if not names:
+        return None
+    lowered = [n.lower() for n in names]
+    if lowered == ['all']:
+        return all_attacks()
+    if lowered == ['none']:
+        return no_attacks()
+    unknown = sorted(set(n.upper() for n in names) - set(ATTACK_NAMES))
+    if unknown:
+        raise SystemExit(f"Unknown attacks {unknown}. Known: all, none, {', '.join(ATTACK_NAMES)}")
+    return dict(no_attacks(), **{n.upper(): True for n in names})
+
+
 def settings_from_args(args):
     explicit = {
         'TEST': args.test,
@@ -462,6 +537,8 @@ def settings_from_args(args):
         'MAX_CARRIERS': args.carriers,
         'PALETTE': args.palette,
         'CI': args.ci,
+        'LEGACY': args.legacy,
+        'ATTACKS': parse_attacks(args.attacks),
     }
     settings = {k: v for k, v in explicit.items() if v is not None}
     if args.perm_b is not None:

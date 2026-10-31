@@ -23,17 +23,21 @@ init(autoreset=True)
 
 # Numeric result columns (used for CSV export, grouping and plots).
 NUMERIC_COLUMNS = ['MSE', 'PSNR [dB]', 'SNR [dB]', 'SEGSNR [dB]', 'PESQ', 'STOI', 'BER [%]',
-                   'CAP. [%]', 'CAP. [bps]', 'EFF. CAP. [bps]', 'EMB TIME [s]', 'EXT TIME [s]']
+                   'CAP. [%]', 'CAP. [bps]', 'EFF. CAP. [bps]', 'EMB TIME [s]', 'EXT TIME [s]',
+                   'BAND ENERGY [dB]']
+
+# Peak value of 16-bit PCM used by the PSNR (full scale).
+PSNR_PEAK = 32767.0
 
 BEST_TYPE = {
     'MSE': 'min', 'PSNR [dB]': 'max', 'SNR [dB]': 'max', 'SEGSNR [dB]': 'max', 'PESQ': 'max',
     'STOI': 'max', 'BER [%]': 'min', 'CAP. [%]': 'max', 'CAP. [bps]': 'max', 'EFF. CAP. [bps]': 'max',
-    'EMB TIME [s]': 'min', 'EXT TIME [s]': 'min',
+    'EMB TIME [s]': 'min', 'EXT TIME [s]': 'min', 'BAND ENERGY [dB]': 'max',
 }
 
 CSV_FIELDNAMES = [
-    'NAME', 'TEST NAME', 'METHOD CLASS', 'LEVELS', 'VAD', 'ADAPTIVE', 'REDUCED', 'ALPHA', 'BETA', 'FRAMES',
-    'FREQ_L', 'FREQ_H', 'FRAME [ms]', 'HOP [ms]', 'CARRIER', 'TEST', 'STEGOBJECT', 'SECRET', 'SEC. SIZE [b]',
+    'NAME', 'TEST NAME', 'METHOD CLASS', 'LEGACY', 'LEVELS', 'VAD', 'ADAPTIVE', 'REDUCED', 'ALPHA', 'BETA',
+    'FRAMES', 'FREQ_L', 'FREQ_H', 'BAND [Hz]', 'BAND ENERGY [dB]', 'FRAME [ms]', 'HOP [ms]', 'CARRIER', 'TEST', 'STEGOBJECT', 'SECRET', 'SEC. SIZE [b]',
     'EXTRACTED [b]', 'BIT ERRORS', 'MSE', 'PSNR [dB]', 'SNR [dB]', 'SEGSNR [dB]', 'PESQ', 'STOI', 'BER [%]',
     'CAP. [%]', 'CAP. [bps]', 'EFF. CAP. [bps]', 'EMB TIME [s]', 'EXT TIME [s]', 'CLIPPED', 'DOMAIN', 'STYLE'
 ]
@@ -532,6 +536,7 @@ class Analysis:
             'NAME': method.normal_name,
             'TEST NAME': method.name,
             'METHOD CLASS': method.__class__.__name__,
+            'LEGACY': getattr(method, 'legacy', False),
             'LEVELS': getattr(method, 'levels', None),
             'FRAMES': method.where_to_hide,
             'VAD': method.type_of_vad,
@@ -541,6 +546,10 @@ class Analysis:
             'BETA': method.beta,
             'FREQ_L': method.FREQ_L,
             'FREQ_H': method.FREQ_H,
+            'BAND [Hz]': (f"{method.band_frequency[0]:.1f}-{method.band_frequency[1]:.1f}"
+                          if getattr(method, 'band_frequency', None) else None),
+            'BAND ENERGY [dB]': (round(method.band_energy_db, 2)
+                                 if getattr(method, 'band_energy_db', None) is not None else None),
             'FRAME [ms]': method.frame_length,
             'HOP [ms]': method.hop_duration_ms,
             'CARRIER': carrier.name,
@@ -704,19 +713,17 @@ class Analysis:
         n = min(len(a), len(b))
         return a[:n], b[:n]
 
-    def calculate_peak_signal_to_noise_ratio(self, carrier, stegobject):
+    def calculate_peak_signal_to_noise_ratio(self, carrier, stegobject, peak=PSNR_PEAK):
         """
-        PSNR = 10 log10(peak^2 / MSE), peak = max |carrier| (the old version used
-        max(stegobject) - not the absolute peak - and an overflowing MSE).
+        PSNR = 10 log10(A^2 / MSE) with the full-scale peak of 16-bit PCM,
+        A = 32767 (the definition in the PC paper; independent of the
+        loudness of the carrier). The old version used max(stegobject) and an
+        overflowing int16 MSE.
         """
         reference = carrier.data_signed_int16 if hasattr(carrier, 'data_signed_int16') else carrier
         mse = self.calculate_mean_squared_error(reference, stegobject)
-        peak = float(np.max(np.abs(np.asarray(reference, dtype=np.float64)))) if len(reference) else 0.0
-
         if mse == 0:
             return float('inf')
-        if peak == 0:
-            return float('-inf')
         return 10 * math.log10(peak ** 2 / mse)
 
     def calculate_snr(self, carrier, stegobject):

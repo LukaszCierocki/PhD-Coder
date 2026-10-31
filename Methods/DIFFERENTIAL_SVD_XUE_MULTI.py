@@ -1,9 +1,14 @@
+from lib.EmbeddingRules import xue_rule
 from lib.Method import DCT_MULTI_LEVEL_SVD_METHOD
-from Methods.DIFFERENTIAL_SVD_XUE import xue_rule
 
 
 class DIFFERENTIAL_SVD_XUE_MULTI(DCT_MULTI_LEVEL_SVD_METHOD):
-    """Xue et al. rule applied on the deepest level of the multi-level Hankel SVD."""
+    """
+    Xue et al. rule applied on the deepest level of the multi-level Hankel SVD.
+    LEGACY=True: Eq. (22) as printed (previous code).
+    """
+
+    SUPPORTS_LEGACY = True
 
     def __init__(self, method_arguments, logger=None):
 
@@ -20,5 +25,5 @@ class DIFFERENTIAL_SVD_XUE_MULTI(DCT_MULTI_LEVEL_SVD_METHOD):
         return len(carrier)
 
     def modify_singular_values(self, ro_11, ro_21, bit):
-        ro_dash_11, ro_dash_21 = xue_rule(ro_11, ro_21, bit, self.alpha, self.beta)
+        ro_dash_11, ro_dash_21 = xue_rule(ro_11, ro_21, bit, self.alpha, self.beta, as_printed=self.legacy)
         return ro_dash_11, ro_dash_21, self.alpha, self.beta

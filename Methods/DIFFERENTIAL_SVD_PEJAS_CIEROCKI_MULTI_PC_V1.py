@@ -3,14 +3,19 @@ from lib.Method import DCT_MULTI_LEVEL_SVD_METHOD
 
 class DIFFERENTIAL_SVD_PEJAS_CIEROCKI_MULTI_PC_V1(DCT_MULTI_LEVEL_SVD_METHOD):
     """
-    PC [v1] - symmetric shift of both singular values relative to their
-    current values by ``T * davg / 2``.
+    PC [v1] - Algorithm 4 (RSLBE), mode PCv1: bit 0 moves both singular values
+    symmetrically around the odd one (a' = b + alpha S/2, b' = b - alpha S/2),
+    bit 1 resets both to the mean and moves them apart by beta S/2.
+    Guaranteed margins: alpha (bit 0), beta/2 (bit 1); alpha <= 1 keeps
+    b' >= 0. ADAPTIVE is used only with LEGACY=True.
 
-    With ADAPTIVE=True the shift always produces the requested sign
-    (new difference = ALPHA * davg). With ADAPTIVE=False the shift for bit 0
-    is fixed (ALPHA * davg) and may be too small when the odd singular value
-    is much larger - such bits are extracted wrongly by design.
+    LEGACY=True: previous rule - bit 0 shifted relative to the current values
+    (a' = a + T S/2); with ADAPTIVE=False the sign is not guaranteed and about
+    3% of the bits are lost.
     """
+
+    PAPER_MODE = 'PCv1'
+    SUPPORTS_LEGACY = True
 
     def __init__(self, method_arguments, logger=None):
 
@@ -28,7 +33,12 @@ class DIFFERENTIAL_SVD_PEJAS_CIEROCKI_MULTI_PC_V1(DCT_MULTI_LEVEL_SVD_METHOD):
         return len(carrier)
 
     def modify_singular_values(self, ro_11, ro_21, bit):
+        if self.legacy:
+            return self.legacy_rule(ro_11, ro_21, bit)
+        return self.paper_rule(ro_11, ro_21, bit)
 
+    def legacy_rule(self, ro_11, ro_21, bit):
+        """Rule of the code base before 2026-10-31 (differs from Algorithm 4 for bit 0)."""
         davg = (ro_11 + ro_21) / 2.0
         denom = self.safe_denominator(ro_21 + ro_11)
 

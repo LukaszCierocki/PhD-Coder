@@ -5,20 +5,24 @@ from lib.Method import DCT_MULTI_LEVEL_SVD_METHOD
 
 class DIFFERENTIAL_SVD_PEJAS_CIEROCKI_MULTI_PC_V3(DCT_MULTI_LEVEL_SVD_METHOD):
     """
-    PC [v3] - adaptive multi-level selection (AMLS).
+    PC [v3] - adaptive multi-level selection (AMLS), Algorithm 2 of the PC
+    paper on top of the PC [v2] rule (Algorithm 4, mode PCv2).
 
-    For every frame the PC [v1] adaptive rule is tried on each decomposition
-    depth 1..LEVELS and the depth with the best robustness score
+    For every frame the bit is embedded at each decomposition depth
+    1..LEVELS and the depth with the highest
 
-        score = (new singular value margin) / mean|embedded frame - frame|
+        score_j = |a'_j - b'_j| / (MSE(x, x_j) + eps)
 
-    is used. The chosen depth of every bit is side information: it is stored in
-    the extraction key (``key['levels']``) and read back during extraction.
-    The receiver therefore needs ~log2(LEVELS) bits of side information per
-    embedded bit (see docs/METHODS.md).
+    is used (ties: the shallowest). The chosen depth of every bit is side
+    information: it is stored in the extraction key (``key['levels']``) and
+    read back during extraction - ~log2(LEVELS) bits per embedded bit.
 
-    Thresholds are always adaptive (the ADAPTIVE flag is not used).
+    LEGACY=True: previous score (signed margin / mean |x_j - x|).
+    The ADAPTIVE flag is not used.
     """
+
+    PAPER_MODE = 'PCv2'
+    SUPPORTS_LEGACY = True
 
     # True -> decompose separately for every candidate depth (original
     # "baseline" implementation, used to compare embedding times).
@@ -42,7 +46,12 @@ class DIFFERENTIAL_SVD_PEJAS_CIEROCKI_MULTI_PC_V3(DCT_MULTI_LEVEL_SVD_METHOD):
         return len(carrier)
 
     def modify_singular_values(self, ro_11, ro_21, bit):
+        if self.legacy:
+            return self.legacy_rule(ro_11, ro_21, bit)
+        return self.paper_rule(ro_11, ro_21, bit)
 
+    def legacy_rule(self, ro_11, ro_21, bit):
+        """Rule of the code base before 2026-10-31 (equal to Algorithm 4, PCv2, up to rounding)."""
         davg = (ro_11 + ro_21) / 2.0
         denom = self.safe_denominator(ro_21 + ro_11)
 
@@ -64,14 +73,19 @@ class DIFFERENTIAL_SVD_PEJAS_CIEROCKI_MULTI_PC_V3(DCT_MULTI_LEVEL_SVD_METHOD):
 
     def _candidate(self, level, frame, frame_dct, idx_low, idx_high, levels_evn, levels_odd, bit):
         embedded_frame, stats = self.embed_in_levels(frame_dct, idx_low, idx_high, levels_evn, levels_odd, bit)
+        return self.candidate_score(frame, embedded_frame, stats, bit), level, embedded_frame, stats
 
-        diff = np.mean(np.abs(embedded_frame - frame))
-        if bit == 0:
-            margin = stats['new_s_even'] - stats['new_s_odd']
-        else:
-            margin = stats['new_s_odd'] - stats['new_s_even']
-
-        return margin / (diff + 1e-8), level, embedded_frame, stats
+    def candidate_score(self, frame, embedded_frame, stats, bit):
+        if self.legacy:
+            diff = np.mean(np.abs(embedded_frame - frame))
+            if bit == 0:
+                margin = stats['new_s_even'] - stats['new_s_odd']
+            else:
+                margin = stats['new_s_odd'] - stats['new_s_even']
+            return margin / (diff + 1e-8)
+        # Algorithm 2: |d'_L - d'_calL| / (MSE_j + eps)
+        mse = np.mean((embedded_frame - frame) ** 2)
+        return abs(stats['new_s_even'] - stats['new_s_odd']) / (mse + 1e-8)
 
     def embedd_in_frame(self, frame, bit, fs):
         frame = np.asarray(frame, dtype=np.float64)
