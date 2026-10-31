@@ -2,8 +2,6 @@ numpy
 scipy
 BitVector
 scikit-image
-PILLOW
-alive_progress
 pesq
 pystoi
 sympy
@@ -20,3 +18,7 @@ seaborn
 matplotlib
 webrtcvad-wheels
 librosa
+alive_progress
+pydub
+audioop-lts; python_version >= "3.13"
+pytest
