@@ -124,3 +124,14 @@ def test_baselines_preset_uses_published_parameters():
     wen = [m for m in methods if m.__class__.__name__ == 'MDCT_SVD_WEN']
     assert {(m.alpha, m.where_to_hide, m.normal_name) for m in xue} == {(0.2, 'ALL', 'Xue et. al. (orig.)')}
     assert {(m.alpha, m.FREQ_L, m.FREQ_H, m.normal_name) for m in wen} == {(0.61, 100, 3000, 'Wen Et. Al. (orig.)')}
+
+
+def test_comparison_preset_has_every_method_once_at_50_bps():
+    import logging
+    preset = coder.PRESETS['COMPARISON'](logging.getLogger('x'))
+    names = [m.normal_name for m in preset['methods']]
+    assert len(names) == len(set(names)) == len(coder.THESIS_METHODS) + len(coder.ORIGINAL_BASELINES)
+    assert {'Xue et. al. (orig.)', 'Wen Et. Al. (orig.)', 'PC [v3]'} <= set(names)
+    assert {m.hop_duration_ms for m in preset['methods']} == {20}
+    assert all(preset['attacks'].values())
+    assert preset['settings']['STEGANALYSIS'] is True

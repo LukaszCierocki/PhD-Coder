@@ -4,6 +4,7 @@ PhD Coder - steganography test runner.
     python coder.py                                   # preset from RUN_SETTINGS['TEST']
     python coder.py --test CAPACITY_SWEEP             # data for the "<metric> vs Capacity" charts
     python coder.py --test FOR_CLASSIFIER --steganalysis
+    python coder.py --test COMPARISON --seed 7       # all methods + '(orig.)' at 50 bps, attacks, steganalysis
     python coder.py --config ~/Results/<run>/test_config_<time>.json   # replay a saved run
     python coder.py --plots-from ~/Results/<run1> ~/Results/<run2> --out ~/Results/Plots
     python coder.py --steganalysis-from ~/Results/<run>
@@ -177,12 +178,28 @@ def build_baselines(logger):
     }
 
 
+def build_comparison(logger):
+    """
+    One table for all methods at 50 bps: the thesis methods (common
+    configuration) and Xue / Wen with their published parameters '(orig.)',
+    every attack, steganalysis.
+    """
+    methods = thesis_methods(logger, hop_ms=20)
+    methods += [create_method(name, params(20, **dict(overrides)), logger) for name, overrides in ORIGINAL_BASELINES]
+    return {
+        'methods': methods,
+        'attacks': all_attacks(),
+        'settings': {'STEGANALYSIS': True, 'PER_FILE_PLOTS': False},
+    }
+
+
 PRESETS = {
     'DEBUG': build_debug,
     'FOR_CLASSIFIER': build_for_classifier,
     'CAPACITY_SWEEP': build_capacity_sweep,
     'ROBUSTNESS': build_robustness,
     'BASELINES': build_baselines,
+    'COMPARISON': build_comparison,
 }
 
 

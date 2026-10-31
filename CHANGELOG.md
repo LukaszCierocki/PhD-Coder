@@ -1,6 +1,10 @@
 # Changelog
 
-## 2026-10-31 (3) - steganalysis: Chi² tests
+## 2026-10-31 (3) - steganalysis: Chi² tests; preset COMPARISON
+
+* **Preset `COMPARISON`**: all thesis methods and both `(orig.)` baselines at 50 bps,
+  every attack, steganalysis - the data of the method ranking in one run
+  (`python coder.py --test COMPARISON --seed 7 --perm-b 100`).
 
 * **Amplitude Chi² detected everything.** The stegobject histogram was compared with
   the cover histogram + `1e-12` taken as exact expected counts. An empty cover bin (any
