@@ -65,6 +65,8 @@ CHARTS = {
 DEFAULT_METRICS = ['BER [%]', 'EMB TIME [s]', 'EXT TIME [s]', 'MSE', 'PESQ']
 
 LEGEND_TITLE = 'Metoda / Method'
+# Up to this many lines the legend is drawn inside the axes (thesis style).
+MAX_LEGEND_INSIDE = 9
 X_COLUMN = 'CAP. [bps]'
 X_LABEL = 'Capacity [bps]'
 
@@ -218,8 +220,14 @@ def plot_metric_vs_capacity(df, metric, output_dir, test='NONE', palette='husl',
     if logy:
         ax.set_yscale('log')
     ax.grid(True, linestyle='--', alpha=0.6)
-    ax.legend(title=LEGEND_TITLE, loc='best', frameon=True, fancybox=True, shadow=True, fontsize=11,
-              title_fontsize=11)
+    plotted = sum(1 for name in order if not table[table['NAME'] == name].empty)
+    if plotted > MAX_LEGEND_INSIDE:
+        # many lines (e.g. with (orig.) / (legacy) variants): legend outside, nothing is hidden
+        ax.legend(title=LEGEND_TITLE, loc='upper left', bbox_to_anchor=(1.01, 1.0), frameon=True, fancybox=True,
+                  shadow=True, fontsize=10, title_fontsize=10)
+    else:
+        ax.legend(title=LEGEND_TITLE, loc='best', frameon=True, fancybox=True, shadow=True, fontsize=11,
+                  title_fontsize=11)
 
     fig.tight_layout()
 

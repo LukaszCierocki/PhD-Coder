@@ -1,5 +1,60 @@
 # Changelog
 
+## 2026-10-31 (2) - methods checked against the papers
+
+Checked against Xue et al. (IEEE Access 2019), Wen et al. (MTAP 2021) and the PC paper
+(Pejaś & Cierocki, "Adaptive High-Fidelity Speech Steganography Based on DCT and
+Multi-Level SVD"). Numbers: 10 CMU ARCTIC carriers, 50 bps, α = β = 0.7.
+
+### Embedding rules (change results - previous behaviour: `LEGACY=True` / `--legacy`)
+
+* **PC methods follow Algorithm 4 (RSLBE) of the PC paper** (`lib/EmbeddingRules.py`,
+  equal to Algorithm 3 with the Lemma 1 factors). The previous code differed:
+  PC Xue [v1]/[v2] bit 1 (`b' = a + β_A S` instead of `a + β S`), PC [v1] bit 0 (shift
+  relative to the current values - BER 2.57% → 0%), PC [v2] (reset to the mean with the
+  adjusted instead of the constant factors - MSE 23 067 → 14 702). PC Xue: MSE 39 360 →
+  29 317.
+* **PC [v3] score of Algorithm 2**: `|a' − b'| / MSE` instead of signed margin / mean
+  absolute error (BER 0.60% → 1.14%, MSE 8 219 → 6 835).
+* **Xue Eq. (22)**: the symmetric form `b' = a + T2` is kept (the printed `b + T2`
+  contradicts the paper's own `d_j ≤ −T_bu,2` and gives ≈ 10% BER at the paper's
+  α = 0.2); the printed form is the LEGACY rule.
+* `ADAPTIVE` / `REDUCED` only affect the LEGACY rules. Legacy methods are named
+  `..._LEGACY` / `... (legacy)`.
+
+### Lemma 1
+
+The guaranteed margins are `γ_α` (= α for the [v1] modes, α/2 for the [v2] modes) for
+bit 0 and β/2 for bit 1, not α and β: the no-modification branches were treated as if
+the adjusted factors were equal to their constant parts. Corrected statement and proof:
+see the separate LaTeX file; tested in `test_suite/test_rules.py` (including a
+counter-example to the submitted version and the non-negativity limits α ≤ 1 for PC [v1],
+α, β ≤ 2).
+
+### Frequency-band safeguards
+
+* even number of band coefficients (`2M`, as in all three papers) - only 80 bps frames
+  change (25 → 24 bins);
+* band actually used reported (log, key, CSV `BAND [Hz]`), band energy check (CSV
+  `BAND ENERGY [dB]`, warning below −35 dB), warning for a band including DC;
+* the receiver must use the band / `LEVELS` / `HANKEL_ROWS` stored in the key -
+  otherwise `ValueError` (before: silently wrong bits, e.g. 4% BER with another band);
+* `WHERE_TO_HIDE='ALL'` (no VAD) and `LABEL` (display name).
+
+### Metrics, attacks, presets
+
+* PSNR with the full-scale peak of 16-bit PCM, `A = 32767` (as defined in the PC paper).
+* Re-quantisation 16 → 8 → 16 bit (was 10 bit, the paper says 8; parameter
+  `REQUANTIZE_BITS`), resampling fs → fs/2 → fs with an anti-aliasing filter (was
+  decimation without a filter, which aliased 4-8 kHz into the band). All attack parameters
+  in `lib.Attacks.DEFAULT_ATTACK_PARAMS`, recorded in the run configuration.
+* Preset `BASELINES`: Xue (α = β = 0.2, every frame) and Wen (α = 0.61, 100 Hz - 3 kHz)
+  as published, labelled `(orig.)`; charts draw `(orig.)` / `(legacy)` variants in the
+  colour of their method with dashed / dotted lines.
+* Command line: `--legacy`, `--attacks all|none|NAMES`.
+* `EMB TIME` stays without the VAD (the PC paper text says it includes it - to be
+  changed in the paper).
+
 ## 2026-10-31 - review: correctness, safeguards, steganalysis and charts in the coder
 
 Numbers below: 10 CMU ARCTIC carriers (`arctic_a0001`-`a0010`, 16 kHz), 50 bps,

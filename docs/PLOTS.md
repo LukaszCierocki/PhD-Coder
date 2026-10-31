@@ -39,7 +39,16 @@ seaborn `whitegrid`, dashed grid, 10 × 6 in at 200 dpi, bold y label, legend ti
 keeps its colour in every chart and when some methods are missing. The seven thesis
 methods get exactly the colours of the original figures (`husl` palette, order
 PC Xue [v1], PC Xue [v2], PC [v1], PC [v2], PC [v3], Wen Et. Al., Xue et. al.); other
-methods get additional colours and markers.
+methods get additional colours and markers. Variants named `<method> (orig.)` (BASELINES
+preset) and `<method> (legacy)` keep the colour and marker of `<method>` with a dashed /
+dotted line and hollow markers, and are listed right after it in the legend:
+
+```bash
+python coder.py --plots-from ~/Results/<CAPACITY_SWEEP run> ~/Results/<BASELINES run> --out Plots
+```
+
+With more than 9 lines (`MAX_LEGEND_INSIDE`) the legend is placed outside the axes so
+that no data is hidden; up to 9 lines it stays inside, as in the thesis figures.
 
 Options:
 

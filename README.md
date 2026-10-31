@@ -77,9 +77,17 @@ Presets are defined in `coder.py` (`PRESETS`):
 | `FOR_CLASSIFIER` | all thesis methods, 50 bps | none | steganalysis |
 | `CAPACITY_SWEEP` | all thesis methods at 25, 31.25, 50, 62.5, 80, 100 bps | none | capacity charts |
 | `ROBUSTNESS` | all thesis methods, 50 bps | all | BER chart per attack |
+| `BASELINES` | Xue et al. and Wen et al. with their published parameters, 25-100 bps, labelled `(orig.)` | none | plot next to `CAPACITY_SWEEP` |
 
 The thesis method set (`THESIS_METHODS`) is: Wen et al. (MDCT), Xue et al., PC Xue v1,
-PC Xue v2, PC v1, PC v2, PC v3 (8 levels); band 1500-2500 Hz, ALPHA = BETA = 0.7, rVAD.
+PC Xue v2, PC v1, PC v2, PC v3 (8 levels); band 1500-2500 Hz, ALPHA = BETA = 0.7, rVAD -
+i.e. the baselines run with the common configuration. `BASELINES` runs them with the
+parameters of their papers (Xue: α = β = 0.2, every frame without VAD; Wen: α = 0.61,
+100 Hz - 3 kHz).
+
+The PC methods follow Algorithm 4 of the PC paper; `--legacy` (or `LEGACY=True`) restores
+the rules of the code before 2026-10-31 to reproduce older results (see
+[docs/METHODS.md](docs/METHODS.md#legacy---previous-rules)).
 The nominal capacity is one bit per hop: `bps = 1000 / HOP_DURATION_MS` (Wen uses MDCT
 frames twice as long as the hop).
 
@@ -93,6 +101,8 @@ python coder.py --help
 
 # experiments
 python coder.py --test ROBUSTNESS --carriers 20 --seed 7 --no-file-plots
+python coder.py --test BASELINES --seed 7 --attacks all     # published parameters, with attacks
+python coder.py --test CAPACITY_SWEEP --seed 7 --legacy     # previous embedding rules
 python coder.py --test FOR_CLASSIFIER --only-embed --steganalysis --perm-b 500
 python coder.py --config ~/Results/<run>/test_config_<time>.json      # replay a run
 
@@ -131,10 +141,16 @@ runs in that folder are moved to `Archive/` when a new run starts.
 
 Main CSV columns: `NAME`, `CARRIER`, `TEST` (`NONE` = clean stegobject, otherwise the
 attack), `SEC. SIZE [b]`, `EXTRACTED [b]`, `BIT ERRORS`, `BER [%]` (missing bits count as
-errors), `MSE`, `PSNR [dB]` (peak = max |carrier|), `SNR [dB]`, `SEGSNR [dB]` (20 ms
-segments, clamped to [-10, 35] dB), `PESQ` (wide-band at 16 kHz, narrow-band at 8 kHz),
+errors), `MSE`, `PSNR [dB]` (`10 log10(32767² / MSE)`, full scale of 16-bit PCM),
+`SNR [dB]`, `SEGSNR [dB]` (20 ms segments, clamped to [-10, 35] dB), `PESQ` (wide-band at 16 kHz, narrow-band at 8 kHz),
 `STOI` (extended), `CAP. [bps]` (nominal), `EFF. CAP. [bps]` (embedded bits / duration),
-`EMB TIME [s]`, `EXT TIME [s]`, `CLIPPED`.
+`EMB TIME [s]`, `EXT TIME [s]` (embedding / extraction loop with transforms, without the
+VAD), `CLIPPED`, `BAND [Hz]` (band actually used), `BAND ENERGY [dB]`, `LEGACY`.
+
+Attacks follow the protocol of the PC paper (`lib.Attacks.DEFAULT_ATTACK_PARAMS`): AWGN
+30 dB, high-pass 500 Hz, low-pass 6.5 kHz, re-quantisation to 8 bits, MP3 64/128/192
+kbps, resampling fs → fs/2 → fs with anti-aliasing, scaling ×0.7 / ×1.3, plus jitter,
+packet loss and G.711. Change them with `RUN_SETTINGS['ATTACK_PARAMS']`.
 
 ## Methods
 
@@ -149,15 +165,17 @@ segments, clamped to [-10, 35] dB), `PESQ` (wide-band at 16 kHz, narrow-band at 
 | PC [v3] baseline / optimized | `..._PC_V3_BASELINE/OPTIMIZED` | same stegobject as PC [v3]; unoptimised / optimised search (timing comparison) |
 
 Parameters: `ALPHA`, `BETA` (strength), `FREQ_L`, `FREQ_H` (band in Hz), `FRAME_LENGTH`,
-`HOP_DURATION_MS` (ms), `LEVELS`, `HANKEL_ROWS`, `ADAPTIVE`, `REDUCED`, `TYPE_OF_VAD`
-(`rVAD` / `webrtc`), `WHERE_TO_HIDE` (`VOICED`). Embedding rules, side information and
+`HOP_DURATION_MS` (ms), `LEVELS`, `HANKEL_ROWS`, `TYPE_OF_VAD` (`rVAD` / `webrtc`),
+`WHERE_TO_HIDE` (`VOICED` / `ALL`), `LEGACY`, `LABEL` (display name), and - only for the
+legacy rules - `ADAPTIVE`, `REDUCED`. Embedding rules, side information and
 known limitations of every version are described in [docs/METHODS.md](docs/METHODS.md).
 
 ## Adding a method
 
 1. Create `Methods/<NAME>.py` with a class `<NAME>`. For a DCT + multi-level SVD method
    derive from `lib.Method.DCT_MULTI_LEVEL_SVD_METHOD` and implement only
-   `modify_singular_values(ro_11, ro_21, bit)`; otherwise derive from
+   `modify_singular_values(ro_11, ro_21, bit)` (put the rule itself into
+   `lib/EmbeddingRules.py` so it can be tested in isolation); otherwise derive from
    `DIFFERENTIAL_SVD_XUE_BASED_METHOD` and implement `embedd_in_frame` and
    `extract_from_frame`. Set `self.name`, `self.normal_name` and `calculate_capacity`.
 2. If the receiver needs per-bit side information, extend `build_extraction_key` and
@@ -181,7 +199,8 @@ PhD-Coder/
 ├── coder.py              # test runner and command line
 ├── Methods/              # steganographic methods
 ├── lib/
-│   ├── Method.py         # base classes, framing + VAD, Hankel/SVD, MDCT, validation
+│   ├── Method.py         # base classes, framing + VAD, band, Hankel/SVD, MDCT, validation
+│   ├── EmbeddingRules.py # singular-value rules (PC Algorithm 3/4, Lemma 1, Xue Eq. 19-22)
 │   ├── Registry.py       # method name -> class (lazy imports)
 │   ├── Analysis.py       # metrics, CSV export, per-file charts
 │   ├── Attacks.py        # robustness attacks
