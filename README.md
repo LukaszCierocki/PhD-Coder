@@ -80,7 +80,8 @@ Presets are defined in `coder.py` (`PRESETS`):
 | `BASELINES` | Xue et al. and Wen et al. with their published parameters, 25-100 bps, labelled `(orig.)` | none | plot next to `CAPACITY_SWEEP` |
 | `BETA_RULE` | PC methods with both bit 1 rules of Algorithm 4 (`BETA_RULE` = `BETA_K` / `HALF`, names `… [β/2]`), 50 bps, same secrets | all | comparison of Theorem 3 (β_k) with the previous rule |
 | `COMPARISON` | all thesis methods + both `(orig.)` baselines, 50 bps | all | steganalysis - one table for ranking the methods |
-| `ALL` | all thesis methods, every PC method with every rule variant (`… [α/2]`, `… [β/2] [α/2]`, `… [β min] [α min]`), both `(orig.)` baselines - 22 methods, 50 bps, same secrets for the variants | all | everything in one run; add `--steganalysis` |
+| `THESIS` | all thesis methods, every PC method with the selected rule variants (default, `… [α/2]`, `… [β/2] [α/2]`, `… [β min] [α min]`), both `(orig.)` baselines - 22 methods, 50 bps, same secrets for the variants | all | the thesis comparison in one run; add `--steganalysis` |
+| `ALL` | the methods of `THESIS` with every combination of `BETA_RULE` × `ALPHA_RULE` (3 × 3; 3 variants for the [v1] modes) - 37 methods, 50 bps | all | every rule combination |
 
 The thesis method set (`THESIS_METHODS`) is: Wen et al. (MDCT), Xue et al., PC Xue v1,
 PC Xue v2, PC v1, PC v2, PC v3 (8 levels); band 1500-2500 Hz, ALPHA = BETA = 0.7, rVAD -
@@ -106,7 +107,8 @@ python coder.py --help
 python coder.py --test ROBUSTNESS --carriers 20 --seed 7 --no-file-plots
 python coder.py --test BASELINES --seed 7 --attacks all     # published parameters, with attacks
 python coder.py --test COMPARISON --seed 7 --perm-b 100    # all methods at 50 bps: quality, attacks, steganalysis
-python coder.py --test ALL --seed 7                        # every method and rule variant at 50 bps, attacks
+python coder.py --test THESIS --seed 7                     # thesis methods + selected rule variants at 50 bps, attacks
+python coder.py --test ALL --seed 7                        # the same with every alpha / beta rule combination
 python coder.py --test CAPACITY_SWEEP --seed 7 --legacy     # previous embedding rules
 python coder.py --test FOR_CLASSIFIER --only-embed --steganalysis --perm-b 500
 python coder.py --config ~/Results/<run>/test_config_<time>.json      # replay a run

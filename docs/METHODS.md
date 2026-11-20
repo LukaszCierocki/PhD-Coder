@@ -96,7 +96,7 @@ Bit 0 of the [v2] modes (PC Xue [v2], PC [v2], PC [v3]) uses the mirror rule
 replaces `α` in the shift (the bit 0 rows of the table with `α_k`). Margin `α` instead of
 `α/2`; PC [v2] needs `α ≤ 1`. The [v1] modes already have margin `α` and do not change.
 `ALPHA_RULE='HALF'` restores the constant `α` (names `…_ALPHA_HALF` / `… [α/2]`).
-Preset `ALL` runs every rule variant of every PC method side by side.
+Preset `THESIS` runs the selected rule variants of every PC method side by side, `ALL` every combination of `BETA_RULE` and `ALPHA_RULE`.
 
 **Minimal rules** (`BETA_RULE='MIN'`, `ALPHA_RULE='MIN'`): the previous shifts with the keep
 threshold doubled. Bit 1: keep if `b − a ≥ βS`, otherwise set `b' − a' = βS` exactly

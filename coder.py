@@ -6,7 +6,8 @@ PhD Coder - steganography test runner.
     python coder.py --test FOR_CLASSIFIER --steganalysis
     python coder.py --test COMPARISON --seed 7       # all methods + '(orig.)' at 50 bps, attacks, steganalysis
     python coder.py --test BETA_RULE --seed 7        # PC methods, bit 1 rule beta_k vs beta/2, attacks
-    python coder.py --test ALL --seed 7              # every method and every rule variant at 50 bps, attacks
+    python coder.py --test THESIS --seed 7           # thesis methods + selected rule variants + '(orig.)', attacks
+    python coder.py --test ALL --seed 7              # the same methods with every alpha / beta rule combination
     python coder.py --config ~/Results/<run>/test_config_<time>.json   # replay a saved run
     python coder.py --plots-from ~/Results/<run1> ~/Results/<run2> --out ~/Results/Plots
     python coder.py --steganalysis-from ~/Results/<run>
@@ -17,6 +18,7 @@ See README.md and docs/ for details.
 """
 
 import argparse
+import itertools
 import json
 import logging
 import os
@@ -35,6 +37,7 @@ matplotlib.use('Agg')  # batch runner - never open windows
 
 from lib.Analysis import Analysis, test_label_from_filename
 from lib.Attacks import ATTACK_NAMES, Attacks, all_attacks, no_attacks
+from lib.EmbeddingRules import ALPHA_RULES, BETA_RULES
 from lib.Registry import available_methods, canonical_name, create_method
 from lib.Secret import Secret
 from lib.Tools import Tools
@@ -227,21 +230,24 @@ def build_beta_rule(logger):
     }
 
 
-# Rule variants of Algorithm 4: (BETA_RULE, ALPHA_RULE). ALPHA_RULE only changes the
-# [v2] modes (PC Xue [v2], PC [v2], PC [v3]); for the [v1] modes the variants coincide.
+# Rule variants of Algorithm 4 in the THESIS preset: (BETA_RULE, ALPHA_RULE). ALPHA_RULE
+# only changes the [v2] modes (PC Xue [v2], PC [v2], PC [v3]); for the [v1] modes the
+# variants coincide. The ALL preset uses every combination (ALL_RULE_VARIANTS).
 RULE_VARIANTS = [('BETA_K', 'ALPHA_K'),   # default: margins alpha and beta for both bits
                  ('BETA_K', 'HALF'),      # bit 1 with beta_k, bit 0 with constant alpha (margin alpha / 2)
                  ('HALF', 'HALF'),        # previous Algorithm 4 (margins alpha / 2, beta / 2)
                  ('MIN', 'MIN')]          # minimal rules: margins alpha and beta, smallest change
 
 
-def build_all(logger):
+# Every combination, the defaults first.
+ALL_RULE_VARIANTS = list(itertools.product(BETA_RULES, ALPHA_RULES))
+
+
+def _methods_with_rules(logger, rule_variants):
     """
-    Everything in one run at 50 bps: the thesis methods (default rules), Xue /
-    Wen with their published parameters '(orig.)' and every PC method with
-    every rule variant of Algorithm 4 that changes it (names '... [β/2]',
-    '... [α/2]', '... [β min] [α min]'), all attacks. The rule variants of a method hide the same
-    secret in a carrier. Add --steganalysis for the steganalysis.
+    The thesis methods at 50 bps (every PC method once per rule variant that
+    changes it, the others once) followed by Xue / Wen '(orig.)'. The rule
+    variants of a method hide the same secret in a carrier (secret_seed_name).
     """
     methods = []
     for name, overrides in THESIS_METHODS:
@@ -249,15 +255,38 @@ def build_all(logger):
             methods.append(create_method(name, params(20, **dict(overrides)), logger))
             continue
         seen = set()
-        for beta_rule, alpha_rule in RULE_VARIANTS:
+        for beta_rule, alpha_rule in rule_variants:
             method = create_method(name, params(20, **dict(overrides, BETA_RULE=beta_rule, ALPHA_RULE=alpha_rule)),
                                    logger)
             if method.name not in seen:          # [v1] modes: ALPHA_RULE has no effect
                 seen.add(method.name)
                 methods.append(method)
     methods += [create_method(name, params(20, **dict(overrides)), logger) for name, overrides in ORIGINAL_BASELINES]
+    return methods
+
+
+def build_thesis(logger):
+    """
+    The thesis comparison in one run at 50 bps: the thesis methods, every PC
+    method with the selected rule variants of Algorithm 4 (RULE_VARIANTS:
+    default, '[α/2]', '[β/2] [α/2]', '[β min] [α min]') and Xue / Wen with
+    their published parameters '(orig.)', all attacks. Add --steganalysis.
+    """
     return {
-        'methods': methods,
+        'methods': _methods_with_rules(logger, RULE_VARIANTS),
+        'attacks': all_attacks(),
+        'settings': {'PER_FILE_PLOTS': False},
+    }
+
+
+def build_all(logger):
+    """
+    The methods of THESIS with every combination of BETA_RULE (BETA_K, HALF,
+    MIN) and ALPHA_RULE (ALPHA_K, HALF, MIN): 3 variants for the [v1] modes
+    (ALPHA_RULE has no effect there), 9 for the [v2] modes, all attacks.
+    """
+    return {
+        'methods': _methods_with_rules(logger, ALL_RULE_VARIANTS),
         'attacks': all_attacks(),
         'settings': {'PER_FILE_PLOTS': False},
     }
@@ -265,6 +294,7 @@ def build_all(logger):
 
 PRESETS = {
     'DEBUG': build_debug,
+    'THESIS': build_thesis,
     'ALL': build_all,
     'BETA_RULE': build_beta_rule,
     'FOR_CLASSIFIER': build_for_classifier,

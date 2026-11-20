@@ -137,9 +137,9 @@ def test_comparison_preset_has_every_method_once_at_50_bps():
     assert preset['settings']['STEGANALYSIS'] is True
 
 
-def test_all_preset_has_every_rule_variant_once():
+def test_thesis_preset_has_the_selected_rule_variants_once():
     import logging
-    preset = coder.PRESETS['ALL'](logging.getLogger('x'))
+    preset = coder.PRESETS['THESIS'](logging.getLogger('x'))
     names = [m.normal_name for m in preset['methods']]
     assert len(names) == len(set(names)) == 22
     assert {'PC [v3]', 'PC [v3] [α/2]', 'PC [v3] [β/2] [α/2]', 'PC [v3] [β min] [α min]', 'PC [v1] [β/2]',
@@ -157,3 +157,17 @@ def test_rule_variants_share_the_secret_and_legacy_collapses_them(workspace):
     assert len(seeds) == 1
     legacy = coder.apply_legacy(methods, logging.getLogger('x'))
     assert len([m for m in legacy if m.normal_name.startswith('PC [v3]')]) == 1
+
+
+def test_all_preset_has_every_rule_combination_once():
+    import itertools, logging
+    preset = coder.PRESETS['ALL'](logging.getLogger('x'))
+    methods = preset['methods']
+    names = [m.normal_name for m in methods]
+    assert len(names) == len(set(names)) == 37
+    v2 = [m for m in methods if m.normal_name.startswith('PC [v2]')]
+    combos = {(m.method_arguments['BETA_RULE'], m.method_arguments['ALPHA_RULE']) for m in v2}
+    assert combos == set(itertools.product(('BETA_K', 'HALF', 'MIN'), ('ALPHA_K', 'HALF', 'MIN')))
+    assert len([n for n in names if n.startswith('PC [v1]')]) == 3          # ALPHA_RULE: no effect
+    assert {m.name for m in coder.PRESETS['THESIS'](logging.getLogger('x'))['methods']} <= {m.name for m in methods}
+    assert all(preset['attacks'].values())

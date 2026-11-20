@@ -1,5 +1,13 @@
 # Changelog
 
+## 2026-11-20 (3) - presets THESIS and ALL
+
+* The previous `ALL` preset is now `THESIS` (thesis methods, selected rule variants,
+  `(orig.)` baselines - 22 methods).
+* `ALL`: the same methods with every combination of `BETA_RULE` (`BETA_K`, `HALF`, `MIN`)
+  and `ALPHA_RULE` (`ALPHA_K`, `HALF`, `MIN`) - 9 variants for the [v2] modes, 3 for the
+  [v1] modes, 37 methods, all attacks.
+
 ## 2026-11-20 (2) - minimal rules
 
 * `BETA_RULE='MIN'` / `ALPHA_RULE='MIN'`: keep if the difference already has the margin
