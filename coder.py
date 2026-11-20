@@ -137,23 +137,6 @@ def build_for_classifier(logger):
     }
 
 
-def build_debug(logger):
-    """Quick check: Xue et al. and PC v3 with the four rule variants of Algorithm 4."""
-    return {
-        'methods': [
-            create_method('DIFFERENTIAL_SVD_XUE', params(20), logger),
-            create_method('DIFFERENTIAL_SVD_PEJAS_CIEROCKI_MULTI_PC_V3', params(20, LEVELS=8), logger),                       # β_k + α_k
-            create_method('DIFFERENTIAL_SVD_PEJAS_CIEROCKI_MULTI_PC_V3', params(20, LEVELS=8, ALPHA_RULE='HALF'), logger),   # β_k + α/2
-            create_method('DIFFERENTIAL_SVD_PEJAS_CIEROCKI_MULTI_PC_V3',
-                          params(20, LEVELS=8, BETA_RULE='HALF', ALPHA_RULE='HALF'), logger),                                 # β/2 + α/2
-            create_method('DIFFERENTIAL_SVD_PEJAS_CIEROCKI_MULTI_PC_V3',
-                          params(20, LEVELS=8, BETA_RULE='MIN', ALPHA_RULE='MIN'), logger),                                   # minimal
-        ],
-        'attacks': no_attacks(),
-        'settings': {},
-    }
-
-
 def build_capacity_sweep(logger):
     """All thesis methods at 25 ... 100 bps (data for the capacity charts)."""
     methods = []
@@ -293,7 +276,7 @@ def build_all(logger):
 
 
 PRESETS = {
-    'DEBUG': build_debug,
+    # 'DEBUG' is registered at the end of this file (build_debug - the section to edit)
     'THESIS': build_thesis,
     'ALL': build_all,
     'BETA_RULE': build_beta_rule,
@@ -725,6 +708,34 @@ def main(argv=None):
     else:
         run_and_save_test(settings, args.results_root, args.carriers_dir)
     return 0
+
+
+# region DEBUG preset - edit freely ###########################################
+# =========================================================================== #
+#  DEBUG PRESET - put here the methods / parameters you want to try quickly.  #
+#  Run:  python coder.py --test DEBUG --seed 7 --carriers 2                   #
+#  (RUN_SETTINGS['TEST'] = 'DEBUG' runs it without arguments.)                 #
+# =========================================================================== #
+
+def build_debug(logger):
+    """Quick check: Xue et al. and PC v3 with the four rule variants of Algorithm 4."""
+    return {
+        'methods': [
+            create_method('DIFFERENTIAL_SVD_XUE', params(20), logger),
+            create_method('DIFFERENTIAL_SVD_PEJAS_CIEROCKI_MULTI_PC_V3', params(20, LEVELS=8), logger),                       # β_k + α_k
+            create_method('DIFFERENTIAL_SVD_PEJAS_CIEROCKI_MULTI_PC_V3', params(20, LEVELS=8, ALPHA_RULE='HALF'), logger),   # β_k + α/2
+            create_method('DIFFERENTIAL_SVD_PEJAS_CIEROCKI_MULTI_PC_V3',
+                          params(20, LEVELS=8, BETA_RULE='HALF', ALPHA_RULE='HALF'), logger),                                 # β/2 + α/2
+            create_method('DIFFERENTIAL_SVD_PEJAS_CIEROCKI_MULTI_PC_V3',
+                          params(20, LEVELS=8, BETA_RULE='MIN', ALPHA_RULE='MIN'), logger),                                   # minimal
+        ],
+        'attacks': no_attacks(),
+        'settings': {},
+    }
+
+
+PRESETS['DEBUG'] = build_debug
+# endregion ####################################################################
 
 
 if __name__ == "__main__":
