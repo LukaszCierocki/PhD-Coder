@@ -203,19 +203,21 @@ def test_algorithm_4_equals_algorithm_3_for_every_rule(mode, beta_rule, alpha_ru
 
 @pytest.mark.parametrize('mode', MODES)
 def test_alpha_k_margin_and_scope(mode, pairs):
-    """ALPHA_K: bit 0 margin alpha in every mode; [v1] modes and bit 1 unchanged."""
-    assert R.guaranteed_margins(mode, ALPHA, BETA, 'BETA_K', 'ALPHA_K') == (ALPHA, BETA)
-    margins = [margin(0, *R.rslbe(mode, 0, a, b, ALPHA, BETA, 'BETA_K', 'ALPHA_K'), a, b) for a, b in pairs]
+    """ALPHA_K (default): bit 0 margin alpha in every mode; [v1] modes and bit 1 equal to HALF."""
+    assert R.guaranteed_margins(mode, ALPHA, BETA) == (ALPHA, BETA)
+    half_margin = ALPHA if mode in ('PCXUEv1', 'PCv1') else ALPHA / 2
+    assert R.guaranteed_margins(mode, ALPHA, BETA, 'BETA_K', 'HALF') == (half_margin, BETA)
+    margins = [margin(0, *R.rslbe(mode, 0, a, b, ALPHA, BETA), a, b) for a, b in pairs]
     assert min(margins) >= ALPHA - 1e-12
     for a, b in pairs[:500]:
-        assert R.rslbe(mode, 1, a, b, ALPHA, BETA, 'BETA_K', 'ALPHA_K') == R.rslbe(mode, 1, a, b, ALPHA, BETA)
+        assert R.rslbe(mode, 1, a, b, ALPHA, BETA, 'BETA_K', 'HALF') == R.rslbe(mode, 1, a, b, ALPHA, BETA)
         if mode in ('PCXUEv1', 'PCv1'):
-            assert R.rslbe(mode, 0, a, b, ALPHA, BETA, 'BETA_K', 'ALPHA_K') == R.rslbe(mode, 0, a, b, ALPHA, BETA)
+            assert R.rslbe(mode, 0, a, b, ALPHA, BETA, 'BETA_K', 'HALF') == R.rslbe(mode, 0, a, b, ALPHA, BETA)
     # [v2]: a - b = alpha S / 2 is kept by HALF only (mirror of the beta_k case)
     if mode in ('PCXUEv2', 'PCv2'):
         a, b = 1 + ALPHA / 4, 1 - ALPHA / 4
-        assert R.rslbe(mode, 0, a, b, ALPHA, BETA) == (a, b)
-        assert R.rslbe(mode, 0, a, b, ALPHA, BETA, 'BETA_K', 'ALPHA_K') != (a, b)
+        assert R.rslbe(mode, 0, a, b, ALPHA, BETA, 'BETA_K', 'HALF') == (a, b)
+        assert R.rslbe(mode, 0, a, b, ALPHA, BETA) != (a, b)
 
 
 def test_alpha_k_needs_alpha_at_most_one_for_pc_v2(pairs):
@@ -230,13 +232,26 @@ def test_alpha_k_needs_alpha_at_most_one_for_pc_v2(pairs):
 def test_alpha_rule_parameter_of_the_methods():
     name = 'DIFFERENTIAL_SVD_PEJAS_CIEROCKI_MULTI_PC_V3'
     default = create_method(name, BASE)
-    both = create_method(name, dict(BASE, ALPHA_RULE='ALPHA_K', BETA_RULE='HALF'))
-    assert both.name == default.name + '_BETA_HALF_ALPHA_K'
-    assert both.normal_name == 'PC [v3] [β/2] [α_k]'
+    assert default.method_arguments['ALPHA_RULE'] == 'ALPHA_K'
+    both = create_method(name, dict(BASE, ALPHA_RULE='HALF', BETA_RULE='HALF'))
+    assert both.name == default.name + '_BETA_HALF_ALPHA_HALF'
+    assert both.normal_name == 'PC [v3] [β/2] [α/2]'
     a, b = 1.43, 1.0
-    assert both.modify_singular_values(a, b, 0)[:2] == R.rslbe('PCv2', 0, a, b, ALPHA, BETA, 'HALF', 'ALPHA_K')
-    assert default.modify_singular_values(a, b, 0)[:2] == R.rslbe('PCv2', 0, a, b, ALPHA, BETA)
+    assert both.modify_singular_values(a, b, 0)[:2] == R.rslbe('PCv2', 0, a, b, ALPHA, BETA, 'HALF', 'HALF')
+    assert default.modify_singular_values(a, b, 0)[:2] == R.rslbe('PCv2', 0, a, b, ALPHA, BETA, 'BETA_K', 'ALPHA_K')
+    # [v1] modes: ALPHA_RULE has no effect, so it does not change the name
+    v1 = 'DIFFERENTIAL_SVD_PEJAS_CIEROCKI_MULTI_PC_V1'
+    assert create_method(v1, dict(BASE, ALPHA_RULE='HALF')).name == create_method(v1, BASE).name
     with pytest.raises(ValueError, match='ALPHA_RULE'):
-        create_method('MDCT_SVD_WEN', dict(BASE, FRAME_LENGTH=40, HOP_DURATION_MS=20, ALPHA_RULE='ALPHA_K'))
+        create_method('MDCT_SVD_WEN', dict(BASE, FRAME_LENGTH=40, HOP_DURATION_MS=20, ALPHA_RULE='HALF'))
     with pytest.raises(ValueError, match='ALPHA_RULE'):
         create_method(name, dict(BASE, ALPHA_RULE='x'))
+
+
+def test_rule_variants_are_rejected_with_legacy():
+    """The legacy rules ignore BETA_RULE / ALPHA_RULE - such a variant would silently get the same name."""
+    name = 'DIFFERENTIAL_SVD_PEJAS_CIEROCKI_MULTI_PC_V2'
+    create_method(name, dict(BASE, LEGACY=True))
+    for rules in ({'BETA_RULE': 'HALF'}, {'ALPHA_RULE': 'HALF'}):
+        with pytest.raises(ValueError, match='LEGACY'):
+            create_method(name, dict(BASE, LEGACY=True, **rules))

@@ -192,17 +192,18 @@ class Method:
         return self.method_arguments.get('BETA_RULE', 'BETA_K') == 'HALF' and not self.legacy
 
     @property
-    def alpha_k(self):
-        """ALPHA_RULE='ALPHA_K': adaptive alpha for bit 0 of the [v2] modes."""
-        return self.method_arguments.get('ALPHA_RULE', 'HALF') == 'ALPHA_K' and not self.legacy
+    def alpha_half(self):
+        """ALPHA_RULE='HALF': previous bit 0 rule of the [v2] modes (without alpha_k)."""
+        return (self.method_arguments.get('ALPHA_RULE', 'ALPHA_K') == 'HALF' and not self.legacy
+                and getattr(self, 'PAPER_MODE', None) in ('PCXUEv2', 'PCv2'))
 
     @property
     def name(self):
-        """Technical name (result folders); '_LEGACY' / '_BETA_HALF' / '_ALPHA_K' appended for those variants."""
+        """Technical name (result folders); '_LEGACY' / '_BETA_HALF' / '_ALPHA_HALF' appended for those variants."""
         if self._name is None:
             return None
         return (self._name + ('_LEGACY' if self.legacy else '') + ('_BETA_HALF' if self.beta_half else '')
-                + ('_ALPHA_K' if self.alpha_k else ''))
+                + ('_ALPHA_HALF' if self.alpha_half else ''))
 
     @name.setter
     def name(self, value):
@@ -217,7 +218,7 @@ class Method:
         if self._normal_name is None:
             return None
         return (self._normal_name + (' (legacy)' if self.legacy else '') + (' [β/2]' if self.beta_half else '')
-                + (' [α_k]' if self.alpha_k else ''))
+                + (' [α/2]' if self.alpha_half else ''))
 
     @normal_name.setter
     def normal_name(self, value):
@@ -706,7 +707,7 @@ class DIFFERENTIAL_SVD_XUE_BASED_METHOD(Method):
         'LEGACY': False,
         'LABEL': None,
         'BETA_RULE': 'BETA_K',
-        'ALPHA_RULE': 'HALF',
+        'ALPHA_RULE': 'ALPHA_K',
     }
 
     # True for methods whose embedding rule changed on 2026-10-31 and can be
@@ -836,11 +837,14 @@ class DIFFERENTIAL_SVD_XUE_BASED_METHOD(Method):
             raise ValueError(f"BETA_RULE must be one of {BETA_RULES}, got {beta_rule!r}.")
         if beta_rule != 'BETA_K' and getattr(self, 'PAPER_MODE', None) is None:
             raise ValueError(f"{self.__class__.__name__} does not use Algorithm 4; BETA_RULE must be 'BETA_K'.")
-        alpha_rule = arguments.get('ALPHA_RULE', 'HALF')
+        alpha_rule = arguments.get('ALPHA_RULE', 'ALPHA_K')
         if alpha_rule not in ALPHA_RULES:
             raise ValueError(f"ALPHA_RULE must be one of {ALPHA_RULES}, got {alpha_rule!r}.")
-        if alpha_rule != 'HALF' and getattr(self, 'PAPER_MODE', None) is None:
-            raise ValueError(f"{self.__class__.__name__} does not use Algorithm 4; ALPHA_RULE must be 'HALF'.")
+        if alpha_rule != 'ALPHA_K' and getattr(self, 'PAPER_MODE', None) is None:
+            raise ValueError(f"{self.__class__.__name__} does not use Algorithm 4; ALPHA_RULE must be 'ALPHA_K'.")
+        if arguments.get('LEGACY') and (beta_rule, alpha_rule) != ('BETA_K', 'ALPHA_K'):
+            # the legacy rules ignore BETA_RULE / ALPHA_RULE; the variants would get the same name
+            raise ValueError("BETA_RULE / ALPHA_RULE have no effect with LEGACY=True; leave the defaults.")
         label = arguments.get('LABEL')
         if label is not None and (not isinstance(label, str) or not label.strip()):
             raise ValueError(f"LABEL must be a non-empty string or None, got {label!r}.")
@@ -1481,11 +1485,11 @@ class DCT_MULTI_LEVEL_SVD_METHOD(MULTI_LEVEL_METHOD):
         """
         Algorithm 4 (RSLBE) of the PC paper with the constant parts ALPHA,
         BETA, the bit 1 rule BETA_RULE ('BETA_K' - Theorem 3, 'HALF' -
-        previous version) and the bit 0 rule ALPHA_RULE ('HALF' - current,
-        'ALPHA_K' - adaptive alpha, [v2] modes); the recorded alpha / beta
+        previous version) and the bit 0 rule ALPHA_RULE ('ALPHA_K' - adaptive
+        alpha, [v2] modes, 'HALF' - previous version); the recorded alpha / beta
         are the adjusted factors.
         """
-        rules = (self.method_arguments.get('BETA_RULE', 'BETA_K'), self.method_arguments.get('ALPHA_RULE', 'HALF'))
+        rules = (self.method_arguments.get('BETA_RULE', 'BETA_K'), self.method_arguments.get('ALPHA_RULE', 'ALPHA_K'))
         alpha_A, beta_A = adjusted_factors(self.PAPER_MODE, ro_11, ro_21, self.alpha, self.beta, *rules)
         new_11, new_21 = rslbe(self.PAPER_MODE, bit, ro_11, ro_21, self.alpha, self.beta, *rules)
         return new_11, new_21, alpha_A, beta_A

@@ -15,7 +15,7 @@ Multi-Level SVD":
 
     adjusted_factors   - Lemma 1 / Theorem 3 (alpha_A, beta_A)
     beta_k             - Theorem 3: beta_k = gamma + max(0, -delta)
-    alpha_k            - mirror for bit 0 ([v2] modes): alpha + max(0, delta)
+    alpha_k            - mirror for bit 0 ([v2] modes): alpha + max(0, delta) (default)
     gslbe              - Algorithm 3 (generic four-mode single-level bit embedding)
     rslbe              - Algorithm 4 (reduced four-mode embedding); equals
                          gslbe with the Lemma 1 factors (checked by the tests)
@@ -35,10 +35,10 @@ BETA_RULES = ('BETA_K', 'HALF')
 
 
 # Bit 0 of Algorithm 4, [v2] modes (PC XUE [v2], PC [v2], PC [v3]):
-#   'HALF'    - current paper: keep if a - b >= alpha S / 2, margin alpha / 2 (default)
-#   'ALPHA_K' - mirror of beta_k: alpha_k = alpha + max(0, delta), margin alpha
+#   'ALPHA_K' - mirror of beta_k: alpha_k = alpha + max(0, delta), margin alpha (default)
+#   'HALF'    - previous version: keep if a - b >= alpha S / 2, margin alpha / 2
 # The [v1] modes already have margin alpha (alpha_A = alpha) - no effect there.
-ALPHA_RULES = ('HALF', 'ALPHA_K')
+ALPHA_RULES = ('ALPHA_K', 'HALF')
 
 
 def _check_beta_rule(beta_rule):
@@ -64,7 +64,7 @@ def relative_difference(a, b):
     return 2.0 * (a - b) / total if total != 0 else 0.0
 
 
-def adjusted_factors(mode, a, b, alpha, beta, beta_rule='BETA_K', alpha_rule='HALF'):
+def adjusted_factors(mode, a, b, alpha, beta, beta_rule='BETA_K', alpha_rule='ALPHA_K'):
     """
     Lemma 1: adjusted scaling factors.
 
@@ -126,7 +126,7 @@ def gslbe(mode, bit, a, b, alpha_A, beta_A):
     return a - beta_A * S / 2.0, b + beta_A * S / 2.0                   # PCv1, PCv2
 
 
-def rslbe(mode, bit, a, b, alpha, beta, beta_rule='BETA_K', alpha_rule='HALF'):
+def rslbe(mode, bit, a, b, alpha, beta, beta_rule='BETA_K', alpha_rule='ALPHA_K'):
     """
     Algorithm 4 (reduced form, takes the constant parts alpha and
     beta = gamma of the paper).
@@ -138,9 +138,10 @@ def rslbe(mode, bit, a, b, alpha, beta, beta_rule='BETA_K', alpha_rule='HALF'):
             PC XUE [v2], PC [v2]: keep if a - b >= alpha S / 2
                 PC XUE [v2]: a' = b + alpha S
                 PC [v2]:     a' = S (1 + alpha / 2), b' = S (1 - alpha / 2)
-            alpha_rule='ALPHA_K': [v2] modes with alpha replaced by
+            alpha_rule='ALPHA_K' (default): [v2] modes with alpha replaced by
                 alpha_k = alpha + max(0, delta) (keep <=> a - b >= alpha S,
-                margin alpha); [v1] modes unchanged.
+                margin alpha); [v1] modes unchanged. 'HALF': constant alpha
+                as written above (previous version, margin alpha / 2).
     bit 1:  beta_k = beta + max(0, 2 (b - a) / (a + b))       (Theorem 3)
             all modes: keep if b - a >= beta_k S / 2   (<=> b - a >= beta S)
                 PC XUE [v1], [v2]: b' = a + beta_k S
@@ -173,7 +174,7 @@ def rslbe(mode, bit, a, b, alpha, beta, beta_rule='BETA_K', alpha_rule='HALF'):
     return S - bk * S / 2.0, S + bk * S / 2.0
 
 
-def guaranteed_margins(mode, alpha, beta, beta_rule='BETA_K', alpha_rule='HALF'):
+def guaranteed_margins(mode, alpha, beta, beta_rule='BETA_K', alpha_rule='ALPHA_K'):
     """
     Corrected Lemma 1: minimal normalised decision margins after embedding,
     (a' - b') / S for bit 0 and (b' - a') / S for bit 1.
@@ -193,7 +194,7 @@ def guaranteed_margins(mode, alpha, beta, beta_rule='BETA_K', alpha_rule='HALF')
     return m0, (beta if beta_rule == 'BETA_K' else beta / 2.0)
 
 
-def nonnegative_limits(mode, beta_rule='BETA_K', alpha_rule='HALF'):
+def nonnegative_limits(mode, beta_rule='BETA_K', alpha_rule='ALPHA_K'):
     """
     Largest (alpha, beta) that keep every modified singular value >= 0
     (corrected Lemma 1). None = no limit.

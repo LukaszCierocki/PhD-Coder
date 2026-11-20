@@ -1,5 +1,22 @@
 # Changelog
 
+## 2026-11-20 - α_k by default; preset ALL
+
+* **Bit 0 of the [v2] modes (PC Xue [v2], PC [v2], PC [v3]) uses `α_k = α + max(0, δ)`
+  by default** (`ALPHA_RULE='ALPHA_K'`, mirror of `β_k`, Theorem 1 of the paper): keep
+  if `a − b ≥ αS`, margin `α` instead of `α/2`. With `β_k` both bits now have the margins
+  `α` and `β` in every mode. Results of the [v2] modes change: on 10 ARCTIC carriers at
+  50 bps MSE +11-15%, PESQ −0.01, BER without attacks unchanged (PC v3: 20 → 23 bit
+  errors). `ALPHA_RULE='HALF'` restores the constant α (names `…_ALPHA_HALF` /
+  `… [α/2]`); the [v1] modes do not change. PC [v2] needs `α ≤ 1`.
+* **Preset `ALL`**: the thesis methods, every PC method with every rule variant
+  (`[α/2]`, `[β/2] [α/2]`) and both `(orig.)` baselines - 17 methods, 50 bps, all attacks;
+  the rule variants of a method hide the same secret (`coder.secret_seed_name`).
+* `BETA_RULE` / `ALPHA_RULE` other than the defaults with `LEGACY=True` raise
+  `ValueError` (the legacy rules ignore them, the variants got the same name and result
+  folder); `--legacy` resets them and keeps one method per name.
+* Configurations saved before this change without `ALPHA_RULE` replay with `α_k`.
+
 ## 2026-11-19 - Theorem 3 of the PC paper: β_k in Algorithm 4 (bit 1)
 
 * **Bit 1 of all PC modes uses `β_k = β + max(0, 2(b − a)/(a + b))`** (`BETA` = γ of

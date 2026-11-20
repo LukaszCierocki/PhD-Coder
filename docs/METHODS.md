@@ -90,23 +90,25 @@ Bit 1 uses `β_k = β + max(0, −δ) = β + max(0, 2(b − a)/(a + b))` (Theore
 bit 1 rule (`β` instead of `β_k`, margin `β/2`; names `…_BETA_HALF` / `… [β/2]`); preset
 `BETA_RULE` runs both side by side with the same secrets.
 
-`ALPHA_RULE='ALPHA_K'` is the mirror rule for bit 0 of the [v2] modes (PC Xue [v2],
-PC [v2], PC [v3]): `α_k = α + max(0, δ)`, keep if `a − b ≥ α_k S/2` (⇔ `a − b ≥ αS`),
-otherwise `α_k` replaces `α` in the shift; margin `α` instead of `α/2`, PC [v2] needs
-`α ≤ 1`. The [v1] modes already have margin `α` and do not change. Default `HALF`
-(the rule of the paper); names `…_ALPHA_K` / `… [α_k]`.
+Bit 0 of the [v2] modes (PC Xue [v2], PC [v2], PC [v3]) uses the mirror rule
+`α_k = α + max(0, δ)` (`ALPHA_RULE='ALPHA_K'`, default; Theorem 1 of the paper with
+`α_k = α + max(0, δ_k)`): keep if `a − b ≥ α_k S/2` (⇔ `a − b ≥ αS`), otherwise `α_k`
+replaces `α` in the shift (the bit 0 rows of the table with `α_k`). Margin `α` instead of
+`α/2`; PC [v2] needs `α ≤ 1`. The [v1] modes already have margin `α` and do not change.
+`ALPHA_RULE='HALF'` restores the constant `α` (names `…_ALPHA_HALF` / `… [α/2]`).
+Preset `ALL` runs every rule variant of every PC method side by side.
 
 `ADAPTIVE` and `REDUCED` have no effect in this mode (the variant fixes the factors;
 Algorithm 4 is already the reduced form). The recorded α/β per frame (`alphas_betas`
 charts) are the adjusted factors `α_A`, `β_A`.
 
-**Guaranteed decision margins.** After embedding, `(a' − b')/S ≥ γ_α` for bit 0 and
-`(b' − a')/S ≥ β` for bit 1, with `γ_α = α` for the [v1] modes and `α/2` for the [v2]
-modes. A perturbation `ε = μS` of the difference is therefore tolerated if
-`|μ| < min(γ_α, β)`; the bound is tight (no-modification branches). Before `β_k` the
+**Guaranteed decision margins.** After embedding, `(a' − b')/S ≥ α` for bit 0 and
+`(b' − a')/S ≥ β` for bit 1 in every mode (with `ALPHA_RULE='HALF'` the bit 0 margin of
+the [v2] modes is only `α/2`). A perturbation `ε = μS` of the difference is therefore
+tolerated if `|μ| < min(α, β)`; the bound is tight (no-modification branches). Before `β_k` the
 bit 1 margin was only `β/2` (counter-example, β = 0.7: `a = 1`, `b = 1.43` was not
 modified and `μ = 0.5 < β` flipped the bit; now it is modified). Non-negative singular
-values require `α ≤ 1` for PC [v1], `α ≤ 2` for PC [v2] and `β ≤ 1` for both PC modes
+values require `α ≤ 1` for PC [v1], `α ≤ 1` for PC [v2] (`α ≤ 2` with `ALPHA_RULE='HALF'`) and `β ≤ 1` for both PC modes
 (`a' = a − βS/2` when `b > a`; `lib.EmbeddingRules.nonnegative_limits`).
 
 **PC [v3] (`…_MULTI_PC_V3`)** - adaptive multi-level selection, Algorithm 2: the PC [v2]

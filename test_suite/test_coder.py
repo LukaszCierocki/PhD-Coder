@@ -135,3 +135,24 @@ def test_comparison_preset_has_every_method_once_at_50_bps():
     assert {m.hop_duration_ms for m in preset['methods']} == {20}
     assert all(preset['attacks'].values())
     assert preset['settings']['STEGANALYSIS'] is True
+
+
+def test_all_preset_has_every_rule_variant_once():
+    import logging
+    preset = coder.PRESETS['ALL'](logging.getLogger('x'))
+    names = [m.normal_name for m in preset['methods']]
+    assert len(names) == len(set(names)) == 17
+    assert {'PC [v3]', 'PC [v3] [α/2]', 'PC [v3] [β/2] [α/2]', 'PC [v1] [β/2]',
+            'Xue et. al. (orig.)', 'Wen Et. Al. (orig.)'} <= set(names)
+    assert 'PC [v1] [α/2]' not in names                    # no effect on the [v1] modes
+    assert all(preset['attacks'].values())
+
+
+def test_rule_variants_share_the_secret_and_legacy_collapses_them(workspace):
+    import logging
+    methods = coder.PRESETS['ALL'](logging.getLogger('x'))['methods']
+    v3 = [m for m in methods if m.normal_name.startswith('PC [v3]')]
+    seeds = {coder.derive_seed(7, coder.secret_seed_name(m), 'c') for m in v3}
+    assert len(seeds) == 1
+    legacy = coder.apply_legacy(methods, logging.getLogger('x'))
+    assert len([m for m in legacy if m.normal_name.startswith('PC [v3]')]) == 1
