@@ -11,8 +11,9 @@ ENV/
 # VSCode
 .vscode/
 
-# Results and temp
+# Results and temp (also a 'Results' symlink to ~/Results - a pattern with '/' only matches directories)
 Results/
+/Results
 Archive/
 Carriers/*.wav
 *.log
