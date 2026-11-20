@@ -31,14 +31,17 @@ PAPER_MODES = ('PCXUEv1', 'PCXUEv2', 'PCv1', 'PCv2')
 # Bit 1 of Algorithm 4:
 #   'BETA_K' - Theorem 3: beta_k = beta + max(0, -delta)  (current paper, default)
 #   'HALF'   - previous version: keep if b - a >= beta S / 2, shift by beta S
-BETA_RULES = ('BETA_K', 'HALF')
+#   'MIN'    - minimal rule: keep if b - a >= beta S, else set b' - a' = beta S exactly
+#              (margin beta like beta_k, smallest change; not expressible by Algorithm 3)
+BETA_RULES = ('BETA_K', 'HALF', 'MIN')
 
 
 # Bit 0 of Algorithm 4, [v2] modes (PC XUE [v2], PC [v2], PC [v3]):
 #   'ALPHA_K' - mirror of beta_k: alpha_k = alpha + max(0, delta), margin alpha (default)
 #   'HALF'    - previous version: keep if a - b >= alpha S / 2, margin alpha / 2
+#   'MIN'     - minimal rule: keep if a - b >= alpha S, else set a' - b' = alpha S exactly
 # The [v1] modes already have margin alpha (alpha_A = alpha) - no effect there.
-ALPHA_RULES = ('ALPHA_K', 'HALF')
+ALPHA_RULES = ('ALPHA_K', 'HALF', 'MIN')
 
 
 def _check_beta_rule(beta_rule):
@@ -76,14 +79,22 @@ def adjusted_factors(mode, a, b, alpha, beta, beta_rule='BETA_K', alpha_rule='AL
     beta_rule='HALF': beta_A = beta + delta (previous version).
     alpha_rule='ALPHA_K' ([v2] modes): alpha_A = alpha_k - delta
     = alpha + max(0, -delta).
+    'MIN' rules: Algorithm 3 cannot express them (the keep threshold and the
+    shift differ); the returned factor is the threshold factor of the keep
+    test (beta_A = beta, [v2] alpha_A = alpha) - only used for the charts.
     """
     if mode not in PAPER_MODES:
         raise ValueError(f"Unknown embedding mode {mode!r}. Known: {PAPER_MODES}")
     _check_beta_rule(beta_rule)
     _check_alpha_rule(alpha_rule)
     delta = relative_difference(a, b)
-    beta_A = (beta_k(a, b, beta) if beta_rule == 'BETA_K' else beta) + delta
+    if beta_rule == 'MIN':
+        beta_A = beta
+    else:
+        beta_A = (beta_k(a, b, beta) if beta_rule == 'BETA_K' else beta) + delta
     if mode in ('PCXUEv1', 'PCv1'):
+        return alpha, beta_A
+    if alpha_rule == 'MIN':
         return alpha, beta_A
     return (alpha_k(a, b, alpha) if alpha_rule == 'ALPHA_K' else alpha) - delta, beta_A
 
@@ -148,6 +159,10 @@ def rslbe(mode, bit, a, b, alpha, beta, beta_rule='BETA_K', alpha_rule='ALPHA_K'
                 PC [v1], [v2]:     a' = S (1 - beta_k / 2), b' = S (1 + beta_k / 2)
             beta_rule='HALF': the same with beta_k replaced by beta (previous
             version, keep if b - a >= beta S / 2, margin beta / 2).
+    MIN rules (minimal change for the margins alpha / beta): the HALF shifts
+    with the keep threshold doubled - bit 1 keep if b - a >= beta S, else
+    b' = a + beta S (PC Xue) or a' = S - beta S / 2, b' = S + beta S / 2 (PC),
+    so b' - a' = beta S exactly; bit 0 of the [v2] modes the same with alpha.
     """
     _check(mode, bit)
     _check_beta_rule(beta_rule)
@@ -161,13 +176,13 @@ def rslbe(mode, bit, a, b, alpha, beta, beta_rule='BETA_K', alpha_rule='ALPHA_K'
                 return b + alpha * S, b
             return b + alpha * S / 2.0, b - alpha * S / 2.0
         ak = alpha_k(a, b, alpha) if alpha_rule == 'ALPHA_K' else alpha
-        if a - b >= ak * S / 2.0:
+        if a - b >= (ak * S if alpha_rule == 'MIN' else ak * S / 2.0):
             return a, b
         if mode == 'PCXUEv2':
             return b + ak * S, b
         return S + ak * S / 2.0, S - ak * S / 2.0
     bk = beta_k(a, b, beta) if beta_rule == 'BETA_K' else beta
-    if b - a >= bk * S / 2.0:
+    if b - a >= (bk * S if beta_rule == 'MIN' else bk * S / 2.0):
         return a, b
     if mode in ('PCXUEv1', 'PCXUEv2'):
         return a, a + bk * S
@@ -180,9 +195,9 @@ def guaranteed_margins(mode, alpha, beta, beta_rule='BETA_K', alpha_rule='ALPHA_
     (a' - b') / S for bit 0 and (b' - a') / S for bit 1.
 
     bit 0: alpha for the [v1] modes, alpha / 2 for the [v2] modes
-           (alpha with alpha_rule='ALPHA_K')
-    bit 1: beta (= gamma) for every mode (Theorem 3; it was beta / 2
-           before beta_k was introduced)
+           (alpha with alpha_rule='ALPHA_K' or 'MIN')
+    bit 1: beta (= gamma) for every mode with 'BETA_K' (Theorem 3) and
+           'MIN'; beta / 2 with 'HALF'
     A perturbation eps = mu * S of the difference is tolerated if
     |mu| < min(margins).
     """
@@ -190,8 +205,8 @@ def guaranteed_margins(mode, alpha, beta, beta_rule='BETA_K', alpha_rule='ALPHA_
         raise ValueError(f"Unknown embedding mode {mode!r}. Known: {PAPER_MODES}")
     _check_beta_rule(beta_rule)
     _check_alpha_rule(alpha_rule)
-    m0 = alpha if mode in ('PCXUEv1', 'PCv1') or alpha_rule == 'ALPHA_K' else alpha / 2.0
-    return m0, (beta if beta_rule == 'BETA_K' else beta / 2.0)
+    m0 = alpha if mode in ('PCXUEv1', 'PCv1') or alpha_rule in ('ALPHA_K', 'MIN') else alpha / 2.0
+    return m0, (beta / 2.0 if beta_rule == 'HALF' else beta)
 
 
 def nonnegative_limits(mode, beta_rule='BETA_K', alpha_rule='ALPHA_K'):
@@ -210,7 +225,7 @@ def nonnegative_limits(mode, beta_rule='BETA_K', alpha_rule='ALPHA_K'):
     _check_alpha_rule(alpha_rule)
     if mode not in ('PCv1', 'PCv2'):
         return None, None
-    beta_max = 1.0 if beta_rule == 'BETA_K' else 2.0
+    beta_max = 1.0 if beta_rule == 'BETA_K' else 2.0          # MIN / HALF: a' = S (1 - beta / 2)
     if mode == 'PCv1':
         return 1.0, beta_max
     return (1.0 if alpha_rule == 'ALPHA_K' else 2.0), beta_max

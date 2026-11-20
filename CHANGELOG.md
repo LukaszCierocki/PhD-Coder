@@ -1,5 +1,14 @@
 # Changelog
 
+## 2026-11-20 (2) - minimal rules
+
+* `BETA_RULE='MIN'` / `ALPHA_RULE='MIN'`: keep if the difference already has the margin
+  (`b − a ≥ βS`, [v2] bit 0 `a − b ≥ αS`), otherwise set it to exactly `βS` (`αS`). Same
+  margins α and β as `α_k` / `β_k`, smallest change; see docs/METHODS.md. The defaults do
+  not change.
+* Preset `ALL` adds the `[β min] [α min]` variants (22 methods); `DEBUG` adds PC v3 with
+  the minimal rules.
+
 ## 2026-11-20 - α_k by default; preset ALL
 
 * **Bit 0 of the [v2] modes (PC Xue [v2], PC [v2], PC [v3]) uses `α_k = α + max(0, δ)`
@@ -10,7 +19,8 @@
   errors). `ALPHA_RULE='HALF'` restores the constant α (names `…_ALPHA_HALF` /
   `… [α/2]`); the [v1] modes do not change. PC [v2] needs `α ≤ 1`.
 * **Preset `ALL`**: the thesis methods, every PC method with every rule variant
-  (`[α/2]`, `[β/2] [α/2]`) and both `(orig.)` baselines - 17 methods, 50 bps, all attacks;
+  (`[α/2]`, `[β/2] [α/2]`) and both `(orig.)` baselines - 17 methods (22 with the minimal
+  rules), 50 bps, all attacks;
   the rule variants of a method hide the same secret (`coder.secret_seed_name`).
 * `BETA_RULE` / `ALPHA_RULE` other than the defaults with `LEGACY=True` raise
   `ValueError` (the legacy rules ignore them, the variants got the same name and result

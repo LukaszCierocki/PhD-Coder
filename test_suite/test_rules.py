@@ -187,7 +187,8 @@ def test_beta_rule_parameter_of_the_methods():
         create_method('DIFFERENTIAL_SVD_PEJAS_CIEROCKI_MULTI_PC_V2', dict(BASE, BETA_RULE='x'))
 
 
-RULE_COMBINATIONS = [(br, ar) for br in R.BETA_RULES for ar in R.ALPHA_RULES]
+# the MIN rules are not of the Algorithm 3 form (keep threshold and shift differ)
+RULE_COMBINATIONS = [(br, ar) for br in R.BETA_RULES for ar in R.ALPHA_RULES if 'MIN' not in (br, ar)]
 
 
 @pytest.mark.parametrize('mode', MODES)
@@ -255,3 +256,59 @@ def test_rule_variants_are_rejected_with_legacy():
     for rules in ({'BETA_RULE': 'HALF'}, {'ALPHA_RULE': 'HALF'}):
         with pytest.raises(ValueError, match='LEGACY'):
             create_method(name, dict(BASE, LEGACY=True, **rules))
+
+
+@pytest.mark.parametrize('mode', MODES)
+def test_min_rules_guarantee_the_margins_with_the_smallest_change(mode, pairs):
+    """
+    MIN: every embedded pair has the margin alpha (bit 0, [v2] modes) / beta (bit 1),
+    a modified pair has exactly that margin, a pair is kept iff it already has it,
+    and the change is never larger than with alpha_k / beta_k.
+    """
+    v2 = mode in ('PCXUEv2', 'PCv2')
+    assert R.guaranteed_margins(mode, ALPHA, BETA, 'MIN', 'MIN') == (ALPHA, BETA)
+    for a, b in pairs:
+        S = (a + b) / 2
+        for bit, factor in ((1, BETA), (0, ALPHA)):
+            new = R.rslbe(mode, bit, a, b, ALPHA, BETA, 'MIN', 'MIN')
+            ref = R.rslbe(mode, bit, a, b, ALPHA, BETA)                      # alpha_k / beta_k
+            if bit == 0 and not v2:
+                assert new == ref                                         # [v1] bit 0 unchanged
+                continue
+            m = margin(bit, *new, a, b)
+            assert m >= factor - 1e-12
+            kept = new == (a, b)
+            assert kept == (margin(bit, a, b, a, b) >= factor)
+            if not kept:
+                assert m == pytest.approx(factor)
+            change = (new[0] - a) ** 2 + (new[1] - b) ** 2
+            assert change <= (ref[0] - a) ** 2 + (ref[1] - b) ** 2 + 1e-12 * S ** 2
+
+
+def test_min_rule_example_from_the_discussion():
+    """Bit 1, gamma = 0.7, a = 1.0, b = 1.5: beta_k moves each value by 0.4375, MIN by 0.1875."""
+    assert R.rslbe('PCv2', 1, 1.0, 1.5, ALPHA, 0.7) == pytest.approx((0.5625, 1.9375))
+    assert R.rslbe('PCv2', 1, 1.0, 1.5, ALPHA, 0.7, 'MIN', 'MIN') == pytest.approx((0.8125, 1.6875))
+    assert R.rslbe('PCv2', 1, 1.0, 1.5, ALPHA, 0.7, 'HALF', 'HALF') == (1.0, 1.5)    # margin 0.4 < gamma
+
+
+@pytest.mark.parametrize('mode', MODES)
+def test_min_rules_keep_singular_values_nonnegative(mode, pairs):
+    alpha_max, beta_max = R.nonnegative_limits(mode, 'MIN', 'MIN')
+    assert (alpha_max, beta_max) == {'PCv1': (1.0, 2.0), 'PCv2': (2.0, 2.0)}.get(mode, (None, None))
+    alpha, beta = alpha_max or 3.0, beta_max or 3.0
+    for a, b in pairs:
+        for bit in (0, 1):
+            assert min(R.rslbe(mode, bit, a, b, alpha, beta, 'MIN', 'MIN')) >= -1e-12
+
+
+def test_min_rule_names_and_methods():
+    name = 'DIFFERENTIAL_SVD_PEJAS_CIEROCKI_MULTI_PC_V2'
+    default = create_method(name, BASE)
+    minimal = create_method(name, dict(BASE, BETA_RULE='MIN', ALPHA_RULE='MIN'))
+    assert minimal.name == default.name + '_BETA_MIN_ALPHA_MIN'
+    assert minimal.normal_name == 'PC [v2] [β min] [α min]'
+    a, b = 1.0, 1.43
+    assert minimal.modify_singular_values(a, b, 1)[:2] == R.rslbe('PCv2', 1, a, b, ALPHA, BETA, 'MIN', 'MIN')
+    v1 = 'DIFFERENTIAL_SVD_PEJAS_CIEROCKI_MULTI_PC_V1'
+    assert create_method(v1, dict(BASE, BETA_RULE='MIN', ALPHA_RULE='MIN')).normal_name == 'PC [v1] [β min]'

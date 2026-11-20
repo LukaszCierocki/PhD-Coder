@@ -98,6 +98,18 @@ replaces `α` in the shift (the bit 0 rows of the table with `α_k`). Margin `α
 `ALPHA_RULE='HALF'` restores the constant `α` (names `…_ALPHA_HALF` / `… [α/2]`).
 Preset `ALL` runs every rule variant of every PC method side by side.
 
+**Minimal rules** (`BETA_RULE='MIN'`, `ALPHA_RULE='MIN'`): the previous shifts with the keep
+threshold doubled. Bit 1: keep if `b − a ≥ βS`, otherwise set `b' − a' = βS` exactly
+(`b' = a + βS` for PC Xue, `a' = S − βS/2`, `b' = S + βS/2` for PC); bit 0 of the [v2]
+modes the same with α. The margins are α and β as with `α_k` / `β_k`, but a pair is only
+moved as far as the margin requires (β_k moves the difference to `βS + (b − a)` when
+`b > a`); for the PC modes the equal split is the smallest change `(a' − a)² + (b' − b)²`
+for the required difference. Proof: in both branches the embedded difference is at least
+`βS` (`αS`), so any `|μ| < min(α, β)` is tolerated, and a modified pair has exactly that
+margin (tight). The rules are not of the Algorithm 3 form (keep threshold and shift
+differ); the recorded α/β are the threshold factors. Non-negativity: `α, β ≤ 2` (PC [v1]
+bit 0: `α ≤ 1`). Names `…_BETA_MIN` / `… [β min]`, `…_ALPHA_MIN` / `… [α min]`.
+
 `ADAPTIVE` and `REDUCED` have no effect in this mode (the variant fixes the factors;
 Algorithm 4 is already the reduced form). The recorded α/β per frame (`alphas_betas`
 charts) are the adjusted factors `α_A`, `β_A`.

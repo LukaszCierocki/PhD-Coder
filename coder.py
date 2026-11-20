@@ -20,6 +20,7 @@ import argparse
 import json
 import logging
 import os
+import re
 import sys
 import traceback
 import zlib
@@ -134,7 +135,7 @@ def build_for_classifier(logger):
 
 
 def build_debug(logger):
-    """Quick check: Xue et al. and PC v3 with the three rule variants of Algorithm 4."""
+    """Quick check: Xue et al. and PC v3 with the four rule variants of Algorithm 4."""
     return {
         'methods': [
             create_method('DIFFERENTIAL_SVD_XUE', params(20), logger),
@@ -142,6 +143,8 @@ def build_debug(logger):
             create_method('DIFFERENTIAL_SVD_PEJAS_CIEROCKI_MULTI_PC_V3', params(20, LEVELS=8, ALPHA_RULE='HALF'), logger),   # β_k + α/2
             create_method('DIFFERENTIAL_SVD_PEJAS_CIEROCKI_MULTI_PC_V3',
                           params(20, LEVELS=8, BETA_RULE='HALF', ALPHA_RULE='HALF'), logger),                                 # β/2 + α/2
+            create_method('DIFFERENTIAL_SVD_PEJAS_CIEROCKI_MULTI_PC_V3',
+                          params(20, LEVELS=8, BETA_RULE='MIN', ALPHA_RULE='MIN'), logger),                                   # minimal
         ],
         'attacks': no_attacks(),
         'settings': {},
@@ -228,7 +231,8 @@ def build_beta_rule(logger):
 # [v2] modes (PC Xue [v2], PC [v2], PC [v3]); for the [v1] modes the variants coincide.
 RULE_VARIANTS = [('BETA_K', 'ALPHA_K'),   # default: margins alpha and beta for both bits
                  ('BETA_K', 'HALF'),      # bit 1 with beta_k, bit 0 with constant alpha (margin alpha / 2)
-                 ('HALF', 'HALF')]        # previous Algorithm 4 (margins alpha / 2, beta / 2)
+                 ('HALF', 'HALF'),        # previous Algorithm 4 (margins alpha / 2, beta / 2)
+                 ('MIN', 'MIN')]          # minimal rules: margins alpha and beta, smallest change
 
 
 def build_all(logger):
@@ -236,7 +240,7 @@ def build_all(logger):
     Everything in one run at 50 bps: the thesis methods (default rules), Xue /
     Wen with their published parameters '(orig.)' and every PC method with
     every rule variant of Algorithm 4 that changes it (names '... [β/2]',
-    '... [α/2]'), all attacks. The rule variants of a method hide the same
+    '... [α/2]', '... [β min] [α min]'), all attacks. The rule variants of a method hide the same
     secret in a carrier. Add --steganalysis for the steganalysis.
     """
     methods = []
@@ -307,7 +311,7 @@ def derive_seed(base_seed, method_name, carrier_name):
 
 def secret_seed_name(method):
     """Method name for the secret seed: rule variants of a method hide the same secret."""
-    return method.name.removesuffix('_ALPHA_HALF').removesuffix('_BETA_HALF')
+    return re.sub(r'(_BETA_(HALF|MIN))?(_ALPHA_(HALF|MIN))?$', '', method.name)
 
 
 def _is_copy_of(filename, test_name):

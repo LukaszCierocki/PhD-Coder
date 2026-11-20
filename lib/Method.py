@@ -186,24 +186,38 @@ class Method:
         """LEGACY=True: embedding rules of the code base before 2026-10-31 (see docs/METHODS.md)."""
         return bool(self.method_arguments.get('LEGACY', False))
 
-    @property
-    def beta_half(self):
-        """BETA_RULE='HALF': previous bit 1 rule of Algorithm 4 (without beta_k)."""
-        return self.method_arguments.get('BETA_RULE', 'BETA_K') == 'HALF' and not self.legacy
+    # name / label suffixes of the non-default bit rules of Algorithm 4
+    _RULE_SUFFIXES = {'HALF': ('HALF', '/2'), 'MIN': ('MIN', ' min')}
 
     @property
-    def alpha_half(self):
-        """ALPHA_RULE='HALF': previous bit 0 rule of the [v2] modes (without alpha_k)."""
-        return (self.method_arguments.get('ALPHA_RULE', 'ALPHA_K') == 'HALF' and not self.legacy
-                and getattr(self, 'PAPER_MODE', None) in ('PCXUEv2', 'PCv2'))
+    def beta_variant(self):
+        """BETA_RULE other than 'BETA_K' ('HALF' - previous rule, 'MIN' - minimal rule), else None."""
+        rule = self.method_arguments.get('BETA_RULE', 'BETA_K')
+        return rule if rule != 'BETA_K' and not self.legacy else None
+
+    @property
+    def alpha_variant(self):
+        """ALPHA_RULE other than 'ALPHA_K' for the [v2] modes ('HALF' / 'MIN'), else None."""
+        rule = self.method_arguments.get('ALPHA_RULE', 'ALPHA_K')
+        if rule == 'ALPHA_K' or self.legacy or getattr(self, 'PAPER_MODE', None) not in ('PCXUEv2', 'PCv2'):
+            return None
+        return rule
+
+    def _rule_suffix(self, technical):
+        part = 0 if technical else 1
+        suffix = ''
+        for symbol, rule in (('BETA', self.beta_variant), ('ALPHA', self.alpha_variant)):
+            if rule:
+                tag = self._RULE_SUFFIXES[rule][part]
+                suffix += f'_{symbol}_{tag}' if technical else f" [{'β' if symbol == 'BETA' else 'α'}{tag}]"
+        return suffix
 
     @property
     def name(self):
-        """Technical name (result folders); '_LEGACY' / '_BETA_HALF' / '_ALPHA_HALF' appended for those variants."""
+        """Technical name (result folders); '_LEGACY', '_BETA_HALF' / '_BETA_MIN', '_ALPHA_HALF' / '_ALPHA_MIN' appended."""
         if self._name is None:
             return None
-        return (self._name + ('_LEGACY' if self.legacy else '') + ('_BETA_HALF' if self.beta_half else '')
-                + ('_ALPHA_HALF' if self.alpha_half else ''))
+        return self._name + ('_LEGACY' if self.legacy else '') + self._rule_suffix(True)
 
     @name.setter
     def name(self, value):
@@ -217,8 +231,7 @@ class Method:
             return label
         if self._normal_name is None:
             return None
-        return (self._normal_name + (' (legacy)' if self.legacy else '') + (' [β/2]' if self.beta_half else '')
-                + (' [α/2]' if self.alpha_half else ''))
+        return self._normal_name + (' (legacy)' if self.legacy else '') + self._rule_suffix(False)
 
     @normal_name.setter
     def normal_name(self, value):
@@ -1485,8 +1498,9 @@ class DCT_MULTI_LEVEL_SVD_METHOD(MULTI_LEVEL_METHOD):
         """
         Algorithm 4 (RSLBE) of the PC paper with the constant parts ALPHA,
         BETA, the bit 1 rule BETA_RULE ('BETA_K' - Theorem 3, 'HALF' -
-        previous version) and the bit 0 rule ALPHA_RULE ('ALPHA_K' - adaptive
-        alpha, [v2] modes, 'HALF' - previous version); the recorded alpha / beta
+        previous version, 'MIN' - minimal rule) and the bit 0 rule ALPHA_RULE
+        ('ALPHA_K' - adaptive alpha, [v2] modes, 'HALF' - previous version,
+        'MIN' - minimal rule); the recorded alpha / beta
         are the adjusted factors.
         """
         rules = (self.method_arguments.get('BETA_RULE', 'BETA_K'), self.method_arguments.get('ALPHA_RULE', 'ALPHA_K'))

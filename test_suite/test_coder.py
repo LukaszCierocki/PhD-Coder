@@ -141,8 +141,9 @@ def test_all_preset_has_every_rule_variant_once():
     import logging
     preset = coder.PRESETS['ALL'](logging.getLogger('x'))
     names = [m.normal_name for m in preset['methods']]
-    assert len(names) == len(set(names)) == 17
-    assert {'PC [v3]', 'PC [v3] [α/2]', 'PC [v3] [β/2] [α/2]', 'PC [v1] [β/2]',
+    assert len(names) == len(set(names)) == 22
+    assert {'PC [v3]', 'PC [v3] [α/2]', 'PC [v3] [β/2] [α/2]', 'PC [v3] [β min] [α min]', 'PC [v1] [β/2]',
+            'PC [v1] [β min]',
             'Xue et. al. (orig.)', 'Wen Et. Al. (orig.)'} <= set(names)
     assert 'PC [v1] [α/2]' not in names                    # no effect on the [v1] modes
     assert all(preset['attacks'].values())
