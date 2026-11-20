@@ -5,6 +5,7 @@ PhD Coder - steganography test runner.
     python coder.py --test CAPACITY_SWEEP             # data for the "<metric> vs Capacity" charts
     python coder.py --test FOR_CLASSIFIER --steganalysis
     python coder.py --test COMPARISON --seed 7       # all methods + '(orig.)' at 50 bps, attacks, steganalysis
+    python coder.py --test BETA_RULE --seed 7        # PC methods, bit 1 rule beta_k vs beta/2, attacks
     python coder.py --config ~/Results/<run>/test_config_<time>.json   # replay a saved run
     python coder.py --plots-from ~/Results/<run1> ~/Results/<run2> --out ~/Results/Plots
     python coder.py --steganalysis-from ~/Results/<run>
@@ -134,10 +135,16 @@ def build_for_classifier(logger):
 def build_debug(logger):
     """Quick check of one method."""
     return {
-        'methods': [create_method('DIFFERENTIAL_SVD_XUE', params(20), logger)],
+        'methods': [
+            create_method('DIFFERENTIAL_SVD_XUE', params(20), logger),
+            create_method('DIFFERENTIAL_SVD_PEJAS_CIEROCKI_MULTI_PC_V3', params(20, LEVELS=8), logger),                      # nowa: β_k
+            create_method('DIFFERENTIAL_SVD_PEJAS_CIEROCKI_MULTI_PC_V3', params(20, LEVELS=8, BETA_RULE='HALF'), logger),   # stara: β/2
+            create_method('DIFFERENTIAL_SVD_PEJAS_CIEROCKI_MULTI_PC_V3', params(20, LEVELS=8, ALPHA_RULE='ALPHA_K'), logger),  # α_k + β_k
+        ],
         'attacks': no_attacks(),
         'settings': {},
     }
+
 
 
 def build_capacity_sweep(logger):
@@ -193,8 +200,32 @@ def build_comparison(logger):
     }
 
 
+# PC methods (Algorithm 4) - compared with both bit 1 rules in the BETA_RULE preset.
+PC_METHODS = [(name, overrides) for name, overrides in THESIS_METHODS if 'PEJAS_CIEROCKI' in name]
+
+
+def build_beta_rule(logger):
+    """
+    PC methods at 50 bps with both bit 1 rules of Algorithm 4 in one run:
+    BETA_RULE='BETA_K' (Theorem 3, beta_k = beta + max(0, -delta)) and
+    'HALF' (previous version, names '..._BETA_HALF' / '... [β/2]'), every
+    attack. Same carriers and secrets for both rules (the secret seed depends
+    on the method name, so use --seed for reproducibility).
+    """
+    methods = []
+    for name, overrides in PC_METHODS:
+        for rule in ('BETA_K', 'HALF'):
+            methods.append(create_method(name, params(20, **dict(overrides, BETA_RULE=rule)), logger))
+    return {
+        'methods': methods,
+        'attacks': all_attacks(),
+        'settings': {'PER_FILE_PLOTS': False},
+    }
+
+
 PRESETS = {
     'DEBUG': build_debug,
+    'BETA_RULE': build_beta_rule,
     'FOR_CLASSIFIER': build_for_classifier,
     'CAPACITY_SWEEP': build_capacity_sweep,
     'ROBUSTNESS': build_robustness,
@@ -435,7 +466,10 @@ def run_and_save_test(settings=None, results_root=None, carriers_dir=None):
     attacks_config = dict(no_attacks(), **(settings['ATTACKS'] if settings['ATTACKS'] is not None
                                            else preset['attacks']))
 
-    jobs = [{'method': method, 'carrier': carrier, 'seed': derive_seed(settings['SEED'], method.name, carrier.name)}
+    # the rule suffixes are ignored so every rule variant hides the same secret in a carrier
+    jobs = [{'method': method, 'carrier': carrier,
+             'seed': derive_seed(settings['SEED'], method.name.removesuffix('_ALPHA_K').removesuffix('_BETA_HALF'),
+                                 carrier.name)}
             for method in methods for carrier in carriers]
 
     result = run_experiment(tools, jobs, attacks_config, settings)

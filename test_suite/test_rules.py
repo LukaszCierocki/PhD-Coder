@@ -53,15 +53,33 @@ def test_corrected_lemma_margins_hold_and_are_tight(mode, bit, pairs):
     assert margin(bit, *R.rslbe(mode, bit, a, b, ALPHA, BETA), a, b) == pytest.approx(bound)
 
 
-def test_counterexample_to_the_submitted_lemma():
-    """PC [v1], bit 1: |mu| < beta, but the bit is decoded wrongly (needs |mu| < beta / 2)."""
+@pytest.mark.parametrize('mode', MODES)
+def test_beta_k_fixes_the_counterexample_to_the_submitted_lemma(mode):
+    """
+    Bit 1, a = 1, b = 1.43, mu = 0.5 < beta: without beta_k (keep if
+    b - a >= beta S / 2) the pair was not modified and mu = -0.5 flipped the
+    bit. With beta_k (Theorem 3) the pair is modified and any |mu| < beta is
+    tolerated.
+    """
     a, b, mu = 1.0, 1.43, 0.5
-    new_a, new_b = R.rslbe('PCv1', 1, a, b, ALPHA, BETA)
-    assert (new_a, new_b) == (a, b)                      # no modification
     S = (a + b) / 2
-    delta = new_a - new_b + mu * S                       # extraction statistic
-    assert mu < BETA and delta > 0                       # decoded as '0'
-    assert mu > R.guaranteed_margins('PCv1', ALPHA, BETA)[1]
+    assert b - a >= BETA * S / 2                         # old keep test: not modified
+    new_a, new_b = R.rslbe(mode, 1, a, b, ALPHA, BETA)
+    assert (new_a, new_b) != (a, b)
+    assert new_a - new_b + mu * S < 0                    # still decoded as '1'
+    assert R.guaranteed_margins(mode, ALPHA, BETA)[1] == BETA
+
+
+def test_beta_k_theorem_3():
+    # b <= a: beta_k = gamma;  b > a: beta_k = gamma + 2 (b - a) / (a + b)
+    assert R.beta_k(2.0, 1.0, 0.7) == pytest.approx(0.7)
+    assert R.beta_k(1.0, 3.0, 0.7) == pytest.approx(0.7 + 1.0)
+    # beta_A = beta_k + delta satisfies both Lemma 1 conditions for gamma > mu_max
+    mu_max = 0.69
+    for a, b in [(1.0, 3.0), (3.0, 1.0), (1.0, 1.0)]:
+        delta = R.relative_difference(a, b)
+        beta_A = R.beta_k(a, b, 0.7) + delta
+        assert beta_A > mu_max and beta_A > mu_max + delta
 
 
 @pytest.mark.parametrize('mode', MODES)
@@ -72,6 +90,14 @@ def test_nonnegative_singular_values_within_limits(mode, pairs):
     for a, b in pairs:
         for bit in (0, 1):
             assert min(R.rslbe(mode, bit, a, b, alpha, beta)) >= -1e-12
+
+
+@pytest.mark.parametrize('mode', ['PCv1', 'PCv2'])
+def test_pc_modes_need_beta_at_most_one(mode):
+    gamma = 1.2
+    b = 1.0
+    a = b * (2 - gamma) / (2 + gamma) + 1e-9             # b - a just below gamma S
+    assert R.rslbe(mode, 1, a, b, ALPHA, gamma)[0] < 0
 
 
 def test_pc_v1_needs_alpha_at_most_one():
@@ -132,3 +158,85 @@ def test_pc_v3_score_follows_algorithm_2():
     assert method.candidate_score(frame, embedded, stats, 0) == pytest.approx(2.0 / 4.0)  # |diff| / MSE
     legacy = create_method('DIFFERENTIAL_SVD_PEJAS_CIEROCKI_MULTI_PC_V3', dict(BASE, LEVELS=2, LEGACY=True))
     assert legacy.candidate_score(frame, embedded, stats, 0) == pytest.approx(-2.0 / 2.0)  # signed / MAE
+
+
+@pytest.mark.parametrize('mode', MODES)
+def test_beta_rule_half_is_the_previous_algorithm_4(mode, pairs):
+    """BETA_RULE='HALF': keep if b - a >= beta S / 2, shift by beta S, margin beta / 2."""
+    S = 1.0
+    a, b = S - BETA * S / 4, S + BETA * S / 4             # b - a = beta S / 2: kept by HALF only
+    assert R.rslbe(mode, 1, a, b, ALPHA, BETA, 'HALF') == (a, b)
+    assert R.rslbe(mode, 1, a, b, ALPHA, BETA) != (a, b)
+    assert R.guaranteed_margins(mode, ALPHA, BETA, 'HALF')[1] == BETA / 2
+    for a, b in pairs[:500]:
+        generic = R.gslbe(mode, 1, a, b, *R.adjusted_factors(mode, a, b, ALPHA, BETA, 'HALF'))
+        assert np.allclose(generic, R.rslbe(mode, 1, a, b, ALPHA, BETA, 'HALF'), rtol=1e-12, atol=1e-12)
+        assert R.rslbe(mode, 0, a, b, ALPHA, BETA, 'HALF') == R.rslbe(mode, 0, a, b, ALPHA, BETA)
+
+
+def test_beta_rule_parameter_of_the_methods():
+    half = create_method('DIFFERENTIAL_SVD_PEJAS_CIEROCKI_MULTI_PC_V2', dict(BASE, BETA_RULE='HALF'))
+    new = create_method('DIFFERENTIAL_SVD_PEJAS_CIEROCKI_MULTI_PC_V2', BASE)
+    assert half.name == new.name + '_BETA_HALF' and half.normal_name == 'PC [v2] [β/2]'
+    a, b = 1.0, 1.43
+    assert half.modify_singular_values(a, b, 1)[:2] == R.rslbe('PCv2', 1, a, b, ALPHA, BETA, 'HALF')
+    assert new.modify_singular_values(a, b, 1)[:2] == R.rslbe('PCv2', 1, a, b, ALPHA, BETA)
+    with pytest.raises(ValueError, match='BETA_RULE'):
+        create_method('DIFFERENTIAL_SVD_XUE', dict(BASE, BETA_RULE='HALF'))
+    with pytest.raises(ValueError, match='BETA_RULE'):
+        create_method('DIFFERENTIAL_SVD_PEJAS_CIEROCKI_MULTI_PC_V2', dict(BASE, BETA_RULE='x'))
+
+
+RULE_COMBINATIONS = [(br, ar) for br in R.BETA_RULES for ar in R.ALPHA_RULES]
+
+
+@pytest.mark.parametrize('mode', MODES)
+@pytest.mark.parametrize('beta_rule,alpha_rule', RULE_COMBINATIONS)
+def test_algorithm_4_equals_algorithm_3_for_every_rule(mode, beta_rule, alpha_rule, pairs):
+    for a, b in pairs[:1000]:
+        factors = R.adjusted_factors(mode, a, b, ALPHA, BETA, beta_rule, alpha_rule)
+        for bit in (0, 1):
+            generic = R.gslbe(mode, bit, a, b, *factors)
+            reduced = R.rslbe(mode, bit, a, b, ALPHA, BETA, beta_rule, alpha_rule)
+            assert np.allclose(generic, reduced, rtol=1e-12, atol=1e-12)
+
+
+@pytest.mark.parametrize('mode', MODES)
+def test_alpha_k_margin_and_scope(mode, pairs):
+    """ALPHA_K: bit 0 margin alpha in every mode; [v1] modes and bit 1 unchanged."""
+    assert R.guaranteed_margins(mode, ALPHA, BETA, 'BETA_K', 'ALPHA_K') == (ALPHA, BETA)
+    margins = [margin(0, *R.rslbe(mode, 0, a, b, ALPHA, BETA, 'BETA_K', 'ALPHA_K'), a, b) for a, b in pairs]
+    assert min(margins) >= ALPHA - 1e-12
+    for a, b in pairs[:500]:
+        assert R.rslbe(mode, 1, a, b, ALPHA, BETA, 'BETA_K', 'ALPHA_K') == R.rslbe(mode, 1, a, b, ALPHA, BETA)
+        if mode in ('PCXUEv1', 'PCv1'):
+            assert R.rslbe(mode, 0, a, b, ALPHA, BETA, 'BETA_K', 'ALPHA_K') == R.rslbe(mode, 0, a, b, ALPHA, BETA)
+    # [v2]: a - b = alpha S / 2 is kept by HALF only (mirror of the beta_k case)
+    if mode in ('PCXUEv2', 'PCv2'):
+        a, b = 1 + ALPHA / 4, 1 - ALPHA / 4
+        assert R.rslbe(mode, 0, a, b, ALPHA, BETA) == (a, b)
+        assert R.rslbe(mode, 0, a, b, ALPHA, BETA, 'BETA_K', 'ALPHA_K') != (a, b)
+
+
+def test_alpha_k_needs_alpha_at_most_one_for_pc_v2(pairs):
+    assert R.nonnegative_limits('PCv2', 'BETA_K', 'ALPHA_K') == (1.0, 1.0)
+    for a, b in pairs:
+        assert min(R.rslbe('PCv2', 0, a, b, 1.0, 1.0, 'BETA_K', 'ALPHA_K')) >= -1e-12
+    a = 1.0
+    b = a * (2 - 1.2) / (2 + 1.2) + 1e-9                 # a - b just below alpha S
+    assert R.rslbe('PCv2', 0, a, b, 1.2, BETA, 'BETA_K', 'ALPHA_K')[1] < 0
+
+
+def test_alpha_rule_parameter_of_the_methods():
+    name = 'DIFFERENTIAL_SVD_PEJAS_CIEROCKI_MULTI_PC_V3'
+    default = create_method(name, BASE)
+    both = create_method(name, dict(BASE, ALPHA_RULE='ALPHA_K', BETA_RULE='HALF'))
+    assert both.name == default.name + '_BETA_HALF_ALPHA_K'
+    assert both.normal_name == 'PC [v3] [β/2] [α_k]'
+    a, b = 1.43, 1.0
+    assert both.modify_singular_values(a, b, 0)[:2] == R.rslbe('PCv2', 0, a, b, ALPHA, BETA, 'HALF', 'ALPHA_K')
+    assert default.modify_singular_values(a, b, 0)[:2] == R.rslbe('PCv2', 0, a, b, ALPHA, BETA)
+    with pytest.raises(ValueError, match='ALPHA_RULE'):
+        create_method('MDCT_SVD_WEN', dict(BASE, FRAME_LENGTH=40, HOP_DURATION_MS=20, ALPHA_RULE='ALPHA_K'))
+    with pytest.raises(ValueError, match='ALPHA_RULE'):
+        create_method(name, dict(BASE, ALPHA_RULE='x'))

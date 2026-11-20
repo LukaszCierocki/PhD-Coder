@@ -1,5 +1,20 @@
 # Changelog
 
+## 2026-11-19 - Theorem 3 of the PC paper: β_k in Algorithm 4 (bit 1)
+
+* **Bit 1 of all PC modes uses `β_k = β + max(0, 2(b − a)/(a + b))`** (`BETA` = γ of
+  the paper; `lib.EmbeddingRules.beta_k`): keep if `b − a ≥ β_k S/2` (⇔ `b − a ≥ βS`),
+  otherwise `b' = a + β_k S` (PC Xue) or `S ∓ β_k S/2` (PC). Frames with
+  `βS/2 ≤ b − a < βS` are now modified, so results change (more distortion, larger
+  bit 1 margin). Algorithm 4 still equals Algorithm 3, now with `β_A = β_k + δ`.
+* Guaranteed bit 1 margin `β` instead of `β/2`; the counter-example to the submitted
+  Lemma 1 no longer applies. Non-negativity limit for the PC modes: `β ≤ 1` (was 2).
+* PC v3 inherits the change (PCv2 rule).
+* `BETA_RULE='HALF'` restores the previous bit 1 rule; preset `BETA_RULE` runs the PC
+  methods with both rules in one run (same secret per carrier), all attacks.
+* `ALPHA_RULE='ALPHA_K'`: adaptive α for bit 0 of the [v2] modes, `α_k = α + max(0, δ)`
+  (margin α instead of α/2). Default `HALF` - existing presets give the same results.
+
 ## 2026-10-31 (3) - steganalysis: Chi² tests; preset COMPARISON; RMSE
 
 * **`RMSE [LSB]`** column (`√MSE`) in the CSV files, the console table and the charts

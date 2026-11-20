@@ -30,7 +30,7 @@ from scipy.signal.windows import kaiser
 from BitVector import BitVector
 
 from lib import speechproc
-from lib.EmbeddingRules import adjusted_factors, rslbe
+from lib.EmbeddingRules import ALPHA_RULES, BETA_RULES, adjusted_factors, rslbe
 
 try:  # webrtcvad is optional - only needed for TYPE_OF_VAD = 'webrtc'
     import webrtcvad
@@ -187,11 +187,22 @@ class Method:
         return bool(self.method_arguments.get('LEGACY', False))
 
     @property
+    def beta_half(self):
+        """BETA_RULE='HALF': previous bit 1 rule of Algorithm 4 (without beta_k)."""
+        return self.method_arguments.get('BETA_RULE', 'BETA_K') == 'HALF' and not self.legacy
+
+    @property
+    def alpha_k(self):
+        """ALPHA_RULE='ALPHA_K': adaptive alpha for bit 0 of the [v2] modes."""
+        return self.method_arguments.get('ALPHA_RULE', 'HALF') == 'ALPHA_K' and not self.legacy
+
+    @property
     def name(self):
-        """Technical name (result folders); '_LEGACY' is appended in legacy mode."""
+        """Technical name (result folders); '_LEGACY' / '_BETA_HALF' / '_ALPHA_K' appended for those variants."""
         if self._name is None:
             return None
-        return self._name + ('_LEGACY' if self.legacy else '')
+        return (self._name + ('_LEGACY' if self.legacy else '') + ('_BETA_HALF' if self.beta_half else '')
+                + ('_ALPHA_K' if self.alpha_k else ''))
 
     @name.setter
     def name(self, value):
@@ -205,7 +216,8 @@ class Method:
             return label
         if self._normal_name is None:
             return None
-        return self._normal_name + (' (legacy)' if self.legacy else '')
+        return (self._normal_name + (' (legacy)' if self.legacy else '') + (' [β/2]' if self.beta_half else '')
+                + (' [α_k]' if self.alpha_k else ''))
 
     @normal_name.setter
     def normal_name(self, value):
@@ -693,6 +705,8 @@ class DIFFERENTIAL_SVD_XUE_BASED_METHOD(Method):
         'HANKEL_ROWS': 2,
         'LEGACY': False,
         'LABEL': None,
+        'BETA_RULE': 'BETA_K',
+        'ALPHA_RULE': 'HALF',
     }
 
     # True for methods whose embedding rule changed on 2026-10-31 and can be
@@ -817,6 +831,16 @@ class DIFFERENTIAL_SVD_XUE_BASED_METHOD(Method):
 
         if _require_bool(arguments, 'LEGACY') and not self.SUPPORTS_LEGACY:
             raise ValueError(f"{self.__class__.__name__} has no LEGACY variant.")
+        beta_rule = arguments.get('BETA_RULE', 'BETA_K')
+        if beta_rule not in BETA_RULES:
+            raise ValueError(f"BETA_RULE must be one of {BETA_RULES}, got {beta_rule!r}.")
+        if beta_rule != 'BETA_K' and getattr(self, 'PAPER_MODE', None) is None:
+            raise ValueError(f"{self.__class__.__name__} does not use Algorithm 4; BETA_RULE must be 'BETA_K'.")
+        alpha_rule = arguments.get('ALPHA_RULE', 'HALF')
+        if alpha_rule not in ALPHA_RULES:
+            raise ValueError(f"ALPHA_RULE must be one of {ALPHA_RULES}, got {alpha_rule!r}.")
+        if alpha_rule != 'HALF' and getattr(self, 'PAPER_MODE', None) is None:
+            raise ValueError(f"{self.__class__.__name__} does not use Algorithm 4; ALPHA_RULE must be 'HALF'.")
         label = arguments.get('LABEL')
         if label is not None and (not isinstance(label, str) or not label.strip()):
             raise ValueError(f"LABEL must be a non-empty string or None, got {label!r}.")
@@ -1456,10 +1480,14 @@ class DCT_MULTI_LEVEL_SVD_METHOD(MULTI_LEVEL_METHOD):
     def paper_rule(self, ro_11, ro_21, bit):
         """
         Algorithm 4 (RSLBE) of the PC paper with the constant parts ALPHA,
-        BETA; the recorded alpha / beta are the adjusted factors of Lemma 1.
+        BETA, the bit 1 rule BETA_RULE ('BETA_K' - Theorem 3, 'HALF' -
+        previous version) and the bit 0 rule ALPHA_RULE ('HALF' - current,
+        'ALPHA_K' - adaptive alpha, [v2] modes); the recorded alpha / beta
+        are the adjusted factors.
         """
-        alpha_A, beta_A = adjusted_factors(self.PAPER_MODE, ro_11, ro_21, self.alpha, self.beta)
-        new_11, new_21 = rslbe(self.PAPER_MODE, bit, ro_11, ro_21, self.alpha, self.beta)
+        rules = (self.method_arguments.get('BETA_RULE', 'BETA_K'), self.method_arguments.get('ALPHA_RULE', 'HALF'))
+        alpha_A, beta_A = adjusted_factors(self.PAPER_MODE, ro_11, ro_21, self.alpha, self.beta, *rules)
+        new_11, new_21 = rslbe(self.PAPER_MODE, bit, ro_11, ro_21, self.alpha, self.beta, *rules)
         return new_11, new_21, alpha_A, beta_A
 
     def modify_singular_values(self, ro_11, ro_21, bit):

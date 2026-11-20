@@ -79,23 +79,35 @@ factors of Lemma 1 (checked numerically, max. difference 1e-14):
 
 | Mode | Lemma 1 factors | bit 0 (keep if …; else …) | bit 1 (keep if …; else …) |
 |---|---|---|---|
-| PC Xue [v1] (`…_MULTI_V1`) | `α_A = α`, `β_A = β + δ` | `a − b ≥ αS`; `a' = b + αS` | `b − a ≥ βS/2`; `b' = a + βS` |
-| PC Xue [v2] (`…_MULTI_V2`) | `α_A = α − δ`, `β_A = β + δ` | `a − b ≥ αS/2`; `a' = b + αS` | as v1 |
-| PC [v1] (`…_MULTI_PC_V1`) | `α_A = α`, `β_A = β + δ` | `a − b ≥ αS`; `a' = b + αS/2`, `b' = b − αS/2` | `b − a ≥ βS/2`; `a' = S − βS/2`, `b' = S + βS/2` |
-| PC [v2] (`…_MULTI_PC_V2`) | `α_A = α − δ`, `β_A = β + δ` | `a − b ≥ αS/2`; `a' = S + αS/2`, `b' = S − αS/2` | as v1 |
+| PC Xue [v1] (`…_MULTI_V1`) | `α_A = α`, `β_A = β_k + δ` | `a − b ≥ αS`; `a' = b + αS` | `b − a ≥ β_k S/2`; `b' = a + β_k S` |
+| PC Xue [v2] (`…_MULTI_V2`) | `α_A = α − δ`, `β_A = β_k + δ` | `a − b ≥ αS/2`; `a' = b + αS` | as v1 |
+| PC [v1] (`…_MULTI_PC_V1`) | `α_A = α`, `β_A = β_k + δ` | `a − b ≥ αS`; `a' = b + αS/2`, `b' = b − αS/2` | `b − a ≥ β_k S/2`; `a' = S − β_k S/2`, `b' = S + β_k S/2` |
+| PC [v2] (`…_MULTI_PC_V2`) | `α_A = α − δ`, `β_A = β_k + δ` | `a − b ≥ αS/2`; `a' = S + αS/2`, `b' = S − αS/2` | as v1 |
+
+Bit 1 uses `β_k = β + max(0, −δ) = β + max(0, 2(b − a)/(a + b))` (Theorem 3 of the paper,
+`BETA` is the constant part γ; `lib.EmbeddingRules.beta_k`). The keep test
+`b − a ≥ β_k S/2` is equivalent to `b − a ≥ βS`. `BETA_RULE='HALF'` restores the previous
+bit 1 rule (`β` instead of `β_k`, margin `β/2`; names `…_BETA_HALF` / `… [β/2]`); preset
+`BETA_RULE` runs both side by side with the same secrets.
+
+`ALPHA_RULE='ALPHA_K'` is the mirror rule for bit 0 of the [v2] modes (PC Xue [v2],
+PC [v2], PC [v3]): `α_k = α + max(0, δ)`, keep if `a − b ≥ α_k S/2` (⇔ `a − b ≥ αS`),
+otherwise `α_k` replaces `α` in the shift; margin `α` instead of `α/2`, PC [v2] needs
+`α ≤ 1`. The [v1] modes already have margin `α` and do not change. Default `HALF`
+(the rule of the paper); names `…_ALPHA_K` / `… [α_k]`.
 
 `ADAPTIVE` and `REDUCED` have no effect in this mode (the variant fixes the factors;
 Algorithm 4 is already the reduced form). The recorded α/β per frame (`alphas_betas`
 charts) are the adjusted factors `α_A`, `β_A`.
 
-**Guaranteed decision margins (corrected Lemma 1).** After embedding,
-`(a' − b')/S ≥ γ_α` for bit 0 and `(b' − a')/S ≥ β/2` for bit 1, with `γ_α = α` for the
-[v1] modes and `α/2` for the [v2] modes. A perturbation `ε = μS` of the difference is
-therefore tolerated if `|μ| < min(γ_α, β/2)`; the bound is tight (no-modification
-branches). The submitted version of Lemma 1 claimed `|μ| < min(α, β)`; counter-example
-(PC [v1], bit 1, β = 0.7): `a = 1`, `b = 1.43` is not modified, and `μ = 0.5 < β` flips
-the bit. Non-negative singular values require `α ≤ 1` for PC [v1] and `α, β ≤ 2` for the
-reset-to-mean rules (`lib.EmbeddingRules.nonnegative_limits`).
+**Guaranteed decision margins.** After embedding, `(a' − b')/S ≥ γ_α` for bit 0 and
+`(b' − a')/S ≥ β` for bit 1, with `γ_α = α` for the [v1] modes and `α/2` for the [v2]
+modes. A perturbation `ε = μS` of the difference is therefore tolerated if
+`|μ| < min(γ_α, β)`; the bound is tight (no-modification branches). Before `β_k` the
+bit 1 margin was only `β/2` (counter-example, β = 0.7: `a = 1`, `b = 1.43` was not
+modified and `μ = 0.5 < β` flipped the bit; now it is modified). Non-negative singular
+values require `α ≤ 1` for PC [v1], `α ≤ 2` for PC [v2] and `β ≤ 1` for both PC modes
+(`a' = a − βS/2` when `b > a`; `lib.EmbeddingRules.nonnegative_limits`).
 
 **PC [v3] (`…_MULTI_PC_V3`)** - adaptive multi-level selection, Algorithm 2: the PC [v2]
 rule is applied at every depth `1..LEVELS`, the candidate with the highest

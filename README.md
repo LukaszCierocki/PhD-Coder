@@ -78,6 +78,7 @@ Presets are defined in `coder.py` (`PRESETS`):
 | `CAPACITY_SWEEP` | all thesis methods at 25, 31.25, 50, 62.5, 80, 100 bps | none | capacity charts |
 | `ROBUSTNESS` | all thesis methods, 50 bps | all | BER chart per attack |
 | `BASELINES` | Xue et al. and Wen et al. with their published parameters, 25-100 bps, labelled `(orig.)` | none | plot next to `CAPACITY_SWEEP` |
+| `BETA_RULE` | PC methods with both bit 1 rules of Algorithm 4 (`BETA_RULE` = `BETA_K` / `HALF`, names `… [β/2]`), 50 bps, same secrets | all | comparison of Theorem 3 (β_k) with the previous rule |
 | `COMPARISON` | all thesis methods + both `(orig.)` baselines, 50 bps | all | steganalysis - one table for ranking the methods |
 
 The thesis method set (`THESIS_METHODS`) is: Wen et al. (MDCT), Xue et al., PC Xue v1,
@@ -175,7 +176,7 @@ packet loss and G.711. Change them with `RUN_SETTINGS['ATTACK_PARAMS']`.
 
 Parameters: `ALPHA`, `BETA` (strength), `FREQ_L`, `FREQ_H` (band in Hz), `FRAME_LENGTH`,
 `HOP_DURATION_MS` (ms), `LEVELS`, `HANKEL_ROWS`, `TYPE_OF_VAD` (`rVAD` / `webrtc`),
-`WHERE_TO_HIDE` (`VOICED` / `ALL`), `LEGACY`, `LABEL` (display name), and - only for the
+`WHERE_TO_HIDE` (`VOICED` / `ALL`), `LEGACY`, `BETA_RULE` (PC methods: `BETA_K` default, `HALF` previous bit 1 rule), `ALPHA_RULE` (PC [v2]-type methods: `HALF` default, `ALPHA_K` adaptive α for bit 0), `LABEL` (display name), and - only for the
 legacy rules - `ADAPTIVE`, `REDUCED`. Embedding rules, side information and
 known limitations of every version are described in [docs/METHODS.md](docs/METHODS.md).
 
