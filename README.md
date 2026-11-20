@@ -73,7 +73,7 @@ Presets are defined in `coder.py` (`PRESETS`):
 
 | Preset | Methods | Attacks | Extras |
 |---|---|---|---|
-| `DEBUG` | Xue et al. and PC v3 with the four rule variants of Algorithm 4, 50 bps | none | per-file charts |
+| `DEBUG` | the section to edit at the end of `coder.py`; now every PC method with every rule combination + Xue, Wen and both `(orig.)` baselines, 50 bps | all | quick experiments |
 | `FOR_CLASSIFIER` | all thesis methods, 50 bps | none | steganalysis |
 | `CAPACITY_SWEEP` | all thesis methods at 25, 31.25, 50, 62.5, 80, 100 bps | none | capacity charts |
 | `ROBUSTNESS` | all thesis methods, 50 bps | all | BER chart per attack |

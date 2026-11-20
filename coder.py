@@ -713,24 +713,45 @@ def main(argv=None):
 # region DEBUG preset - edit freely ###########################################
 # =========================================================================== #
 #  DEBUG PRESET - put here the methods / parameters you want to try quickly.  #
-#  Run:  python coder.py --test DEBUG --seed 7 --carriers 2                   #
+#  Run:  python coder.py --test DEBUG --seed 7   (--carriers 2: quick check)   #
 #  (RUN_SETTINGS['TEST'] = 'DEBUG' runs it without arguments.)                 #
 # =========================================================================== #
 
 def build_debug(logger):
-    """Quick check: Xue et al. and PC v3 with the four rule variants of Algorithm 4."""
+    """
+    Every rule combination of Algorithm 4 for every PC method, the comparison
+    methods (Xue, Wen, both '(orig.)') and every attack - edit the lists below.
+    The rule variants of a method hide the same secret in a carrier.
+    """
+    pc_methods = [                                    # (class, extra parameters)
+        ('DIFFERENTIAL_SVD_PEJAS_CIEROCKI_MULTI_V1', {'REDUCED': False, 'ADAPTIVE': False}),   # PC Xue [v1]
+        ('DIFFERENTIAL_SVD_PEJAS_CIEROCKI_MULTI_V2', {'REDUCED': False, 'ADAPTIVE': True}),    # PC Xue [v2]
+        ('DIFFERENTIAL_SVD_PEJAS_CIEROCKI_MULTI_PC_V1', {'ADAPTIVE': False}),                  # PC [v1]
+        ('DIFFERENTIAL_SVD_PEJAS_CIEROCKI_MULTI_PC_V2', {'ADAPTIVE': True}),                   # PC [v2]
+        ('DIFFERENTIAL_SVD_PEJAS_CIEROCKI_MULTI_PC_V3', {'ADAPTIVE': True, 'LEVELS': 8}),      # PC [v3]
+    ]
+    beta_rules = ['BETA_K', 'HALF', 'MIN']            # bit 1: beta_k (default), beta / 2, minimal
+    alpha_rules = ['ALPHA_K', 'HALF', 'MIN']          # bit 0 of the [v2] modes: alpha_k (default), alpha / 2, minimal
+    comparison = [                                    # (class, extra parameters)
+        ('DIFFERENTIAL_SVD_XUE', {}),                                                          # Xue et al.
+        ('MDCT_SVD_WEN', {'MDCT': True}),                                                      # Wen et al.
+    ] + ORIGINAL_BASELINES                            # Xue / Wen with their published parameters '(orig.)'
+
+    methods, names = [], set()
+    for name, extra in pc_methods:
+        for beta_rule in beta_rules:
+            for alpha_rule in alpha_rules:
+                method = create_method(name, params(20, **dict(extra, BETA_RULE=beta_rule, ALPHA_RULE=alpha_rule)),
+                                       logger)
+                if method.name not in names:          # [v1] modes: ALPHA_RULE has no effect
+                    names.add(method.name)
+                    methods.append(method)
+    methods += [create_method(name, params(20, **dict(extra)), logger) for name, extra in comparison]
+
     return {
-        'methods': [
-            create_method('DIFFERENTIAL_SVD_XUE', params(20), logger),
-            create_method('DIFFERENTIAL_SVD_PEJAS_CIEROCKI_MULTI_PC_V3', params(20, LEVELS=8), logger),                       # β_k + α_k
-            create_method('DIFFERENTIAL_SVD_PEJAS_CIEROCKI_MULTI_PC_V3', params(20, LEVELS=8, ALPHA_RULE='HALF'), logger),   # β_k + α/2
-            create_method('DIFFERENTIAL_SVD_PEJAS_CIEROCKI_MULTI_PC_V3',
-                          params(20, LEVELS=8, BETA_RULE='HALF', ALPHA_RULE='HALF'), logger),                                 # β/2 + α/2
-            create_method('DIFFERENTIAL_SVD_PEJAS_CIEROCKI_MULTI_PC_V3',
-                          params(20, LEVELS=8, BETA_RULE='MIN', ALPHA_RULE='MIN'), logger),                                   # minimal
-        ],
-        'attacks': no_attacks(),
-        'settings': {},
+        'methods': methods,
+        'attacks': all_attacks(),                     # no_attacks() for a quick run without attacks
+        'settings': {'PER_FILE_PLOTS': False},        # True: waveform / spectrogram charts per stegobject (slow)
     }
 
 
